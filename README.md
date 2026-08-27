@@ -107,9 +107,15 @@ vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe z
 
 - Registrierung mit Name, E-Mail und Passwort. Der erste Account wird automatisch Trainer.
 - Login bleibt 180 Tage bestehen und verlängert sich bei jedem Besuch automatisch.
-- Trainer legen Trainings (Datum, Uhrzeit, Ort, optionaler Hinweis) an und löschen sie bei Bedarf.
-- Spieler wählen pro Training Zusage, Vielleicht oder Absage — bei Vielleicht/Absage ist ein Grund
-  Pflicht.
+- Trainer legen Trainings an (Datum, Uhrzeit — Standard 19:00 Uhr —, Ort, optionaler Hinweis)
+  und löschen sie bei Bedarf.
+- Spieler wählen pro Training Zusage, Vielleicht oder Absage — bei Vielleicht/Absage ist ein
+  Grund Pflicht. **Die Abstimmung schließt automatisch 1 Stunde vor Trainingsbeginn** (serverseitig
+  abgesichert, nicht nur im Frontend).
+- Das **nächste bevorstehende Training wird oben als Banner mit Live-Countdown angezeigt** und in
+  der Liste optisch hervorgehoben.
+- **Wochenweise Navigation** (◀ / ▶ / "Aktuelle Woche") sowohl bei den Trainings als auch in der
+  Verwaltung — damit die Liste auch bei 50+ Trainings pro Saison übersichtlich bleibt.
 - Button "Übersicht anzeigen" bei jedem Training zeigt genau, wie viele Spieler zu-, vielleicht-
   oder abgesagt haben (mit Namen und bei Vielleicht/Absage dem angegebenen Grund) sowie zugesagte
   Gastspieler.
@@ -117,9 +123,14 @@ vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe z
   sie dort auch wieder entfernen.
 - Statistik-Ansicht zeigt pro (registriertem) Spieler die Anzahl Zusagen/Vielleicht/Absagen/Offen
   über alle Trainings.
+- Trainer können weitere Spieler zu Trainern machen/die Rolle entziehen, und **Spieler auch
+  komplett löschen** — z. B. bei einem vergessenen Passwort (der Spieler kann sich danach mit
+  derselben oder einer neuen E-Mail neu registrieren) oder wenn jemand den Verein verlässt. Ein
+  Trainer kann sich dabei nicht selbst löschen (Schutz vor versehentlichem Aussperren).
 - Verwaltung ist ausschließlich für Trainer sichtbar und nutzbar — sowohl im Menü als auch
   serverseitig abgesichert.
-- Als App installierbar (PWA), inkl. eurem Vereinswappen als App-Icon.
+- Als App installierbar (PWA), inkl. eurem Vereinswappen als App-Icon. Kleiner Hinweis
+  "powered by Jakob Danecker" im Header.
 
 ## Hinweis zum Test in dieser Umgebung
 

@@ -11,6 +11,7 @@
     deferredInstallPrompt: null,
     installDismissed: false,
     openOverview: {}, // trainingId -> Übersichtsdaten, wenn geladen/aufgeklappt
+    weekStart: null,   // Date (Montag 00:00) - welche Woche gerade angezeigt wird
   };
 
   function escapeHtml(str) {
@@ -29,6 +30,91 @@
   function statusClass(s) {
     return { zusage: "zusage", vielleicht: "vielleicht", absage: "absage" }[s] || "offen";
   }
+
+  // ---------- Datum/Zeit-Hilfsfunktionen ----------
+
+  function trainingDateTime(t) {
+    return new Date(`${t.date}T${t.time}:00`);
+  }
+
+  function isVotingClosed(t) {
+    return trainingDateTime(t).getTime() - Date.now() <= 60 * 60 * 1000; // 1 Stunde vorher gesperrt
+  }
+
+  function formatCountdown(target) {
+    const diff = target.getTime() - Date.now();
+    if (diff <= 0) return "hat begonnen / vorbei";
+    const totalMin = Math.floor(diff / 60000);
+    const days = Math.floor(totalMin / (60 * 24));
+    const hours = Math.floor((totalMin % (60 * 24)) / 60);
+    const mins = totalMin % 60;
+    if (days > 0) return `in ${days} Tag${days === 1 ? "" : "en"} ${hours} Std.`;
+    if (hours > 0) return `in ${hours} Std. ${mins} Min.`;
+    return `in ${mins} Min.`;
+  }
+
+  function toISODate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  function startOfWeek(d) {
+    const date = new Date(d);
+    date.setHours(0, 0, 0, 0);
+    const day = date.getDay(); // 0=So,1=Mo,...
+    const diff = (day === 0 ? -6 : 1) - day; // auf Montag zurueckrechnen
+    date.setDate(date.getDate() + diff);
+    return date;
+  }
+
+  function addDays(d, n) {
+    const date = new Date(d);
+    date.setDate(date.getDate() + n);
+    return date;
+  }
+
+  function weekRangeLabel(weekStart) {
+    const weekEnd = addDays(weekStart, 6);
+    const f = (d) => d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    return `${f(weekStart)} – ${f(weekEnd)}.${weekEnd.getFullYear()}`;
+  }
+
+  function getUpcomingSorted(trainings) {
+    const now = Date.now();
+    return trainings
+      .filter((t) => trainingDateTime(t).getTime() >= now)
+      .sort((a, b) => trainingDateTime(a) - trainingDateTime(b));
+  }
+
+  function getNextTraining() {
+    const upcoming = getUpcomingSorted(state.trainings);
+    return upcoming.length > 0 ? upcoming[0] : null;
+  }
+
+  function ensureDefaultWeek() {
+    if (state.weekStart) return;
+    const next = getNextTraining();
+    state.weekStart = next ? startOfWeek(trainingDateTime(next)) : startOfWeek(new Date());
+  }
+
+  function trainingsInCurrentWeek() {
+    const startStr = toISODate(state.weekStart);
+    const endStr = toISODate(addDays(state.weekStart, 6));
+    return state.trainings
+      .filter((t) => t.date >= startStr && t.date <= endStr)
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+  }
+
+  // Live-Countdown aktualisieren, ohne die ganze Seite neu zu rendern
+  // (sonst wuerden offene Texteingaben fuer den Absage-Grund verloren gehen).
+  setInterval(() => {
+    document.querySelectorAll("[data-countdown-target]").forEach((el) => {
+      const target = new Date(el.getAttribute("data-countdown-target"));
+      el.textContent = formatCountdown(target);
+    });
+  }, 30000);
 
   async function api(path, opts) {
     const res = await fetch("/api" + path, {
@@ -91,6 +177,7 @@
   async function loadTrainings() {
     const data = await api("/trainings");
     state.trainings = data.trainings;
+    ensureDefaultWeek();
   }
 
   async function loadPlayers() {
@@ -163,7 +250,8 @@
         <input type="password" id="reg-password" autocomplete="new-password">
         <div id="reg-error" class="error"></div>
         <div style="margin-top:12px;"><button id="btn-register">Registrieren</button></div>
-      </div>`;
+      </div>
+      <p class="muted" style="text-align:center;">Passwort vergessen? Ein Trainer kann euren Account löschen, damit ihr euch neu registrieren könnt.</p>`;
   }
 
   function bindAuth() {
@@ -240,27 +328,87 @@
     else if (state.view === "home") bindTrainings();
   }
 
+  // ---------- Wochen-Navigation (gemeinsam fuer Trainings- und Verwaltungs-Ansicht) ----------
+
+  function renderWeekNav() {
+    return `
+      <div class="week-nav">
+        <button class="small secondary" id="week-prev">◀</button>
+        <span class="week-label">${weekRangeLabel(state.weekStart)}</span>
+        <button class="small secondary" id="week-next">▶</button>
+        <button class="small secondary" id="week-today">Aktuelle Woche</button>
+      </div>`;
+  }
+
+  function bindWeekNav(afterChange) {
+    document.getElementById("week-prev").onclick = () => {
+      state.weekStart = addDays(state.weekStart, -7);
+      afterChange();
+    };
+    document.getElementById("week-next").onclick = () => {
+      state.weekStart = addDays(state.weekStart, 7);
+      afterChange();
+    };
+    document.getElementById("week-today").onclick = () => {
+      state.weekStart = startOfWeek(new Date());
+      afterChange();
+    };
+  }
+
   // ---------- Trainings & RSVP ----------
 
+  function renderNextTrainingBanner() {
+    const next = getNextTraining();
+    if (!next) return "";
+    const dt = trainingDateTime(next);
+    return `
+      <div class="next-training-banner">
+        <div>
+          <div style="font-weight:700;">⭐ Nächstes Training: ${fmtDate(next.date)} · ${next.time} Uhr</div>
+          <div class="muted">${escapeHtml(next.ort || "")} — <span data-countdown-target="${dt.toISOString()}">${formatCountdown(dt)}</span></div>
+        </div>
+        <button class="small secondary" id="btn-jump-next">Zur Woche springen</button>
+      </div>`;
+  }
+
   function renderTrainings() {
-    if (state.trainings.length === 0) {
-      return `<div class="card"><p class="empty">Es sind noch keine Trainings eingetragen.</p></div>`;
-    }
-    return state.trainings.map((t) => {
-      const status = t.myStatus || "offen";
-      const overview = state.openOverview[t.id];
-      const guestCount = (t.guests || []).length;
-      return `
-        <div class="card training" data-id="${t.id}">
-          <div class="head">
-            <div>
-              <div class="when">${fmtDate(t.date)} · ${t.time} Uhr</div>
-              <div class="where">${escapeHtml(t.ort || "")}</div>
-              ${t.note ? `<div class="muted" style="margin-top:4px;">${escapeHtml(t.note)}</div>` : ""}
-            </div>
-            <span class="pill ${statusClass(status)}">${statusLabel(status)}</span>
+    const next = getNextTraining();
+    const visible = trainingsInCurrentWeek();
+
+    const list = state.trainings.length === 0
+      ? `<div class="card"><p class="empty">Es sind noch keine Trainings eingetragen.</p></div>`
+      : visible.length === 0
+        ? `<div class="card"><p class="empty">Keine Trainings in dieser Woche.</p></div>`
+        : visible.map((t) => renderTrainingCard(t, next)).join("");
+
+    return renderNextTrainingBanner() + renderWeekNav() + list;
+  }
+
+  function renderTrainingCard(t, next) {
+    const status = t.myStatus || "offen";
+    const overview = state.openOverview[t.id];
+    const guestCount = (t.guests || []).length;
+    const closed = isVotingClosed(t);
+    const isNext = next && next.id === t.id;
+    const dt = trainingDateTime(t);
+
+    return `
+      <div class="card training ${isNext ? "next-training" : ""}" data-id="${t.id}">
+        <div class="head">
+          <div>
+            ${isNext ? `<div class="pill zusage" style="margin-bottom:6px;">⭐ Nächstes Training</div>` : ""}
+            <div class="when">${fmtDate(t.date)} · ${t.time} Uhr</div>
+            <div class="where">${escapeHtml(t.ort || "")}</div>
+            ${t.note ? `<div class="muted" style="margin-top:4px;">${escapeHtml(t.note)}</div>` : ""}
+            ${!closed ? `<div class="muted" style="margin-top:4px;">⏱ <span data-countdown-target="${dt.toISOString()}">${formatCountdown(dt)}</span></div>` : ""}
           </div>
-          ${guestCount > 0 ? `<div class="muted" style="margin-top:8px;">➕ ${guestCount} Gast${guestCount === 1 ? "" : "gäste"}: ${escapeHtml((t.guests || []).map((g) => g.name).join(", "))}</div>` : ""}
+          <span class="pill ${statusClass(status)}">${statusLabel(status)}</span>
+        </div>
+        ${guestCount > 0 ? `<div class="muted" style="margin-top:8px;">➕ ${guestCount} Gast${guestCount === 1 ? "" : "gäste"}: ${escapeHtml((t.guests || []).map((g) => g.name).join(", "))}</div>` : ""}
+
+        ${closed ? `
+          <p class="muted" style="margin-top:12px;font-style:italic;">🔒 Abstimmung geschlossen (weniger als 1 Stunde bis Trainingsbeginn oder bereits vorbei).</p>
+        ` : `
           <div class="rsvp-buttons">
             <button data-status="zusage" class="${status === "zusage" ? "active-zusage" : "inactive"}">Zusage</button>
             <button data-status="vielleicht" class="${status === "vielleicht" ? "active-vielleicht" : "inactive"}">Vielleicht</button>
@@ -272,12 +420,13 @@
             <div class="error reason-error" style="display:none;">Bitte einen Grund angeben.</div>
             <div style="margin-top:8px;"><button class="small save-reason">Speichern</button></div>
           </div>
-          <div style="margin-top:12px;">
-            <button class="small secondary btn-overview">${overview ? "Übersicht ausblenden" : "Übersicht anzeigen"}</button>
-          </div>
-          ${overview ? renderOverview(overview) : ""}
-        </div>`;
-    }).join("");
+        `}
+
+        <div style="margin-top:12px;">
+          <button class="small secondary btn-overview">${overview ? "Übersicht ausblenden" : "Übersicht anzeigen"}</button>
+        </div>
+        ${overview ? renderOverview(overview) : ""}
+      </div>`;
   }
 
   function renderOverview(data) {
@@ -309,35 +458,52 @@
   }
 
   function bindTrainings() {
+    bindWeekNav(render);
+
+    const jumpBtn = document.getElementById("btn-jump-next");
+    if (jumpBtn) {
+      jumpBtn.onclick = () => {
+        const next = getNextTraining();
+        if (next) {
+          state.weekStart = startOfWeek(trainingDateTime(next));
+          render();
+        }
+      };
+    }
+
     document.querySelectorAll(".training").forEach((card) => {
       const id = card.getAttribute("data-id");
-      const reasonBox = card.querySelector(".reason-box");
-      const reasonInput = card.querySelector(".reason-input");
-      const reasonError = card.querySelector(".reason-error");
       const t = state.trainings.find((x) => String(x.id) === id);
+      const reasonBox = card.querySelector(".reason-box");
 
-      card.querySelectorAll(".rsvp-buttons button").forEach((btn) => {
-        btn.onclick = async () => {
-          const status = btn.getAttribute("data-status");
-          if (status === "zusage") {
-            await submitRsvp(id, "zusage", "");
-            return;
-          }
-          reasonBox.style.display = "block";
-          reasonBox.dataset.pending = status;
-          reasonInput.focus();
+      if (reasonBox) {
+        const reasonInput = card.querySelector(".reason-input");
+        const reasonError = card.querySelector(".reason-error");
+
+        card.querySelectorAll(".rsvp-buttons button").forEach((btn) => {
+          btn.onclick = async () => {
+            const status = btn.getAttribute("data-status");
+            if (status === "zusage") {
+              await submitRsvp(id, "zusage", "");
+              return;
+            }
+            reasonBox.style.display = "block";
+            reasonBox.dataset.pending = status;
+            reasonInput.focus();
+          };
+        });
+
+        card.querySelector(".save-reason").onclick = async () => {
+          const pending = reasonBox.dataset.pending || t.myStatus;
+          const status = pending === "vielleicht" || pending === "absage" ? pending : "vielleicht";
+          const text = reasonInput.value.trim();
+          if (!text) { reasonError.style.display = "block"; return; }
+          reasonError.style.display = "none";
+          await submitRsvp(id, status, text);
         };
-      });
+      }
 
-      card.querySelector(".save-reason").onclick = async () => {
-        const pending = reasonBox.dataset.pending || t.myStatus;
-        const status = pending === "vielleicht" || pending === "absage" ? pending : "vielleicht";
-        const text = reasonInput.value.trim();
-        if (!text) { reasonError.style.display = "block"; return; }
-        reasonError.style.display = "none";
-        await submitRsvp(id, status, text);
-      };
-
+      // Uebersicht-Button ist immer vorhanden, auch wenn die Abstimmung fuer dieses Training geschlossen ist
       card.querySelector(".btn-overview").onclick = async () => {
         if (state.openOverview[id]) {
           delete state.openOverview[id];
@@ -393,12 +559,13 @@
   // ---------- Verwaltung (ausschließlich für Trainer sichtbar) ----------
 
   function renderAdmin() {
+    const visible = trainingsInCurrentWeek();
     return `
       <div class="card">
         <h2>Neues Training anlegen</h2>
         <div class="row">
           <div><label>Datum</label><input type="date" id="new-date"></div>
-          <div><label>Uhrzeit</label><input type="time" id="new-time" value="18:30"></div>
+          <div><label>Uhrzeit</label><input type="time" id="new-time" value="19:00"></div>
         </div>
         <label>Ort</label>
         <input type="text" id="new-ort" placeholder="z. B. Sportplatz Hauptplatz 1">
@@ -410,7 +577,8 @@
 
       <div class="card">
         <h2>Trainings verwalten &amp; Gastspieler eintragen</h2>
-        ${state.trainings.length === 0 ? '<p class="empty">Noch keine Trainings.</p>' : state.trainings.map((t) => {
+        ${renderWeekNav()}
+        ${state.trainings.length === 0 ? '<p class="empty">Noch keine Trainings.</p>' : visible.length === 0 ? '<p class="empty">Keine Trainings in dieser Woche.</p>' : visible.map((t) => {
           const guests = t.guests || [];
           return `
           <div class="training" data-admin-id="${t.id}">
@@ -437,15 +605,21 @@
 
       <div class="card">
         <h2>Spieler (${state.players.length})</h2>
+        <p class="muted">Passwort vergessen? Spieler hier löschen — er/sie kann sich danach mit derselben oder einer neuen E-Mail neu registrieren.</p>
         ${state.players.map((p) => `
           <div class="list-item">
             <span>${escapeHtml(p.name)} <span class="muted">${escapeHtml(p.email)}</span> ${p.isAdmin ? '<span class="badge-admin">Trainer</span>' : ""}</span>
-            <button class="small secondary btn-toggle-admin" data-player-id="${p.id}">${p.isAdmin ? "Trainer entfernen" : "Zu Trainer machen"}</button>
+            <span class="row" style="max-width:320px;">
+              <button class="small secondary btn-toggle-admin" data-player-id="${p.id}">${p.isAdmin ? "Trainer entfernen" : "Zu Trainer machen"}</button>
+              ${p.id !== state.me.id ? `<button class="small secondary btn-delete-player" data-player-id="${p.id}" data-player-name="${escapeHtml(p.name)}">Löschen</button>` : ""}
+            </span>
           </div>`).join("")}
       </div>`;
   }
 
   function bindAdmin() {
+    bindWeekNav(render);
+
     document.getElementById("btn-add-training").onclick = async () => {
       const date = document.getElementById("new-date").value;
       const time = document.getElementById("new-time").value;
@@ -455,6 +629,7 @@
       err.textContent = "";
       try {
         await api("/trainings", { method: "POST", body: { date, time, ort, note } });
+        if (date) state.weekStart = startOfWeek(new Date(`${date}T00:00:00`));
         await loadTrainings();
         render();
       } catch (e) {
@@ -523,6 +698,22 @@
         try {
           await api(`/players/${playerId}/admin`, { method: "POST" });
           await loadPlayers();
+          render();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    });
+
+    document.querySelectorAll(".btn-delete-player").forEach((btn) => {
+      btn.onclick = async () => {
+        const playerId = btn.getAttribute("data-player-id");
+        const name = btn.getAttribute("data-player-name");
+        if (!confirm(`${name} wirklich löschen? Alle bisherigen Zu-/Absagen dieser Person gehen dabei verloren.`)) return;
+        try {
+          await api(`/players/${playerId}`, { method: "DELETE" });
+          await loadPlayers();
+          await loadTrainings();
           render();
         } catch (e) {
           alert(e.message);

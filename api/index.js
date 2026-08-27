@@ -37,6 +37,18 @@ function publicPlayer(row) {
   return { id: row.id, name: row.name, email: row.email, isAdmin: !!row.is_admin };
 }
 
+// Der Vercel-Server laeuft intern in UTC, Trainingszeiten sind aber als Wiener Ortszeit
+// gemeint. Diese Funktion rechnet "Datum + Uhrzeit in Wien" in den tatsaechlichen
+// UTC-Zeitpunkt um (beruecksichtigt Sommer-/Winterzeit automatisch).
+function viennaDateTimeToUtc(dateStr, timeStr) {
+  const naive = new Date(`${dateStr}T${timeStr}:00Z`);
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/Vienna", timeZoneName: "shortOffset" });
+  const part = fmt.formatToParts(naive).find((p) => p.type === "timeZoneName");
+  const match = part && part.value.match(/GMT([+-]\d+)/);
+  const offsetHours = match ? parseInt(match[1], 10) : 1;
+  return new Date(naive.getTime() - offsetHours * 3600 * 1000);
+}
+
 // ---------- Auth ----------
 
 app.post("/api/register", async (req, res) => {
@@ -100,6 +112,22 @@ app.post("/api/players/:id/admin", requireLogin, requireAdmin, async (req, res) 
   res.json({ ok: true });
 });
 
+// Spieler loeschen - z. B. bei vergessenem Passwort (Spieler kann sich danach mit
+// derselben oder einer anderen E-Mail neu registrieren) oder wenn jemand den Verein
+// verlassen hat. Ein Admin kann sich nicht selbst loeschen (Schutz vor versehentlichem
+// Aussperren, falls er der einzige Trainer ist) - dafuer stattdessen die Trainer-Rolle
+// abgeben und einen anderen Trainer bitten, den Account zu entfernen.
+app.delete("/api/players/:id", requireLogin, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.playerId) {
+    return res.status(400).json({ error: "Du kannst dich nicht selbst löschen." });
+  }
+  const p = await db.get("SELECT id FROM players WHERE id = ?", [id]);
+  if (!p) return res.status(404).json({ error: "Spieler nicht gefunden." });
+  await db.run("DELETE FROM players WHERE id = ?", [id]);
+  res.json({ ok: true });
+});
+
 // ---------- Trainings ----------
 
 app.get("/api/trainings", requireLogin, async (req, res) => {
@@ -152,8 +180,14 @@ app.post("/api/trainings/:id/rsvp", requireLogin, async (req, res) => {
   if ((status === "vielleicht" || status === "absage") && (!reason || !reason.trim())) {
     return res.status(400).json({ error: "Bitte einen Grund angeben." });
   }
-  const training = await db.get("SELECT id FROM trainings WHERE id = ?", [trainingId]);
+  const training = await db.get("SELECT id, date, time FROM trainings WHERE id = ?", [trainingId]);
   if (!training) return res.status(404).json({ error: "Training nicht gefunden." });
+
+  const trainingStart = viennaDateTimeToUtc(training.date, training.time);
+  const cutoff = new Date(trainingStart.getTime() - 60 * 60 * 1000); // 1 Stunde vorher
+  if (Date.now() >= cutoff.getTime()) {
+    return res.status(400).json({ error: "Die Abstimmung ist geschlossen (weniger als 1 Stunde bis Trainingsbeginn)." });
+  }
 
   const cleanReason = status === "zusage" ? null : reason.trim();
   await db.run(
