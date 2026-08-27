@@ -94,3 +94,6 @@ tr:last-child td{border-bottom:none;}
 .next-training-banner .muted{color:#cfe3d1;}
 .next-training-banner button{background:#fff;color:var(--grass-dark);border-color:#fff;}
 .training.next-training{border:2px solid var(--grass);box-shadow:0 0 0 3px var(--grass-light);}
+.next-match-banner{background:#1c2f4a;color:#fff;border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.next-match-banner .muted{color:#c7d3e8;}
+.next-match-banner .source-hint{color:#8fa0c2;font-size:11px;font-style:italic;}

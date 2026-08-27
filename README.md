@@ -103,6 +103,33 @@ dev-server.js                         Nur für lokale Tests, auf Vercel nicht ve
 vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe zur Funktion finden
 ```
 
+## Nächstes Spiel (fan.at-Anbindung)
+
+Diese Funktion ruft die öffentliche Spielplan-Seite von fan.at ab (`next-match.js`) — anders als
+ofv.at und ligaportal.at blockiert fan.at automatisierte Zugriffe nicht. Es gibt dafür aber
+**keine offizielle Schnittstelle**, das ist technisch gesehen das Auslesen einer für Menschen
+gedachten Webseite ("Screen Scraping").
+
+**Das bedeutet konkret:**
+- Es funktioniert zuverlässig, solange sich der Seitenaufbau von fan.at nicht ändert.
+- Falls es doch mal aufhört zu funktionieren, merkt ihr das höchstens daran, dass das
+  "Nächstes Spiel"-Banner verschwindet bzw. in der Verwaltung ein Warnhinweis erscheint — **die
+  restliche App (Trainingsanmeldung, Statistik, alles andere) ist davon zu keinem Zeitpunkt
+  betroffen.** Das war ausdrücklich so gewünscht und ist bewusst so gebaut (mehrfache
+  Absicherung: Zwischenspeicher, mehrere Erkennungsversuche, überall try/catch).
+- Als Rückfalloption könnt ihr das nächste Spiel jederzeit unter Verwaltung → "Nächstes Spiel"
+  manuell eintragen — das hat automatisch Vorrang vor den fan.at-Daten.
+- Falls eine Reparatur nötig wird: die Datei `next-match.js` enthält die Erkennungslogik
+  (`tryParseVisibleText` / `tryParseJsonLd`) mit ausführlichen Kommentaren, wo genau angesetzt
+  werden müsste.
+
+**Ehrlicher Hinweis zum Entwicklungsstand:** Diese Erkennungslogik wurde anhand einer Kopie des
+sichtbaren Seiteninhalts entwickelt und mit nachgebauten Beispiel-HTML-Strukturen getestet, aber
+nicht gegen die tatsächliche, aktuelle Rohdatei von fan.at (dafür bestand in dieser Umgebung kein
+Internetzugriff). Es ist gut möglich, dass nach dem ersten Deployment noch eine kleine Anpassung
+nötig ist, falls das echte HTML anders aufgebaut ist als angenommen — dank der Fallback-Logik geht
+dabei aber nichts an der übrigen App kaputt.
+
 ## Funktionsübersicht
 
 - Registrierung mit Name, E-Mail und Passwort. Der erste Account wird automatisch Trainer.
@@ -110,8 +137,16 @@ vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe z
 - Trainer legen Trainings an (Datum, Uhrzeit — Standard 19:00 Uhr —, Ort, optionaler Hinweis)
   und löschen sie bei Bedarf.
 - Spieler wählen pro Training Zusage, Vielleicht oder Absage — bei Vielleicht/Absage ist ein
-  Grund Pflicht. **Die Abstimmung schließt automatisch 1 Stunde vor Trainingsbeginn** (serverseitig
-  abgesichert, nicht nur im Frontend).
+  Grund Pflicht, das Eingabefeld schließt sich danach automatisch wieder. Bei Zusage kann
+  optional eine kurze Notiz hinterlegt werden (z. B. "komme 10 Minuten später") — jederzeit
+  über "Notiz bearbeiten" änderbar. **Die Abstimmung schließt automatisch 1 Stunde vor
+  Trainingsbeginn** (serverseitig abgesichert, nicht nur im Frontend).
+- **Nächstes Spiel**: wird automatisch von fan.at abgerufen und oben im Trainingsplan als
+  Banner angezeigt (Gegner, Heim/Auswärts, Datum, Uhrzeit), mit kleinem Hinweis "Quelle: fan.at".
+  Falls der Abruf mal nicht klappt (Seite nicht erreichbar oder Struktur geändert), bleibt die
+  restliche App komplett unbeeinträchtigt — es ist reines Zusatz-Feature. Trainer sehen in der
+  Verwaltung den aktuellen Status und können das nächste Spiel jederzeit manuell eintragen
+  (hat dann automatisch Vorrang vor den fan.at-Daten, bis wieder gelöscht).
 - Das **nächste bevorstehende Training wird oben als Banner mit Live-Countdown angezeigt** und in
   der Liste optisch hervorgehoben.
 - **Wochenweise Navigation** (◀ / ▶ / "Aktuelle Woche") sowohl bei den Trainings als auch in der
@@ -122,7 +157,7 @@ vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe z
 - Trainer tragen direkt bei einem Training Gastspieler ein (reine Zusage, kein Login) und können
   sie dort auch wieder entfernen.
 - Statistik-Ansicht zeigt pro (registriertem) Spieler die Anzahl Zusagen/Vielleicht/Absagen/Offen
-  über alle Trainings.
+  sowie die Zusage-Quote in Prozent über alle Trainings.
 - Trainer können weitere Spieler zu Trainern machen/die Rolle entziehen, und **Spieler auch
   komplett löschen** — z. B. bei einem vergessenen Passwort (der Spieler kann sich danach mit
   derselben oder einer neuen E-Mail neu registrieren) oder wenn jemand den Verein verlässt. Ein

@@ -12,6 +12,9 @@
     installDismissed: false,
     openOverview: {}, // trainingId -> Übersichtsdaten, wenn geladen/aufgeklappt
     weekStart: null,   // Date (Montag 00:00) - welche Woche gerade angezeigt wird
+    reasonBoxOpen: {}, // trainingId -> true, waehrend eine Notiz/ein Grund gerade eingegeben wird
+    reasonPendingStatus: {}, // trainingId -> "vielleicht"|"absage", waehrend diese Box offen ist (leer = Zusage-Notiz)
+    nextMatch: null,   // { source, match, error, cached, stale } - rein informativ, App laeuft auch ohne
   };
 
   function escapeHtml(str) {
@@ -190,6 +193,18 @@
     state.stats = data;
   }
 
+  // Rein informatives Zusatz-Feature - wenn das fehlschlaegt, darf das den Rest der App
+  // niemals beeintraechtigen, deshalb wird der Fehler hier verschluckt und nur intern
+  // vermerkt (state.nextMatch bleibt dann einfach null / source "not_available").
+  async function loadNextMatch() {
+    try {
+      const data = await api("/next-match");
+      state.nextMatch = data;
+    } catch (e) {
+      state.nextMatch = { source: "not_available", match: null };
+    }
+  }
+
   // ---------- Render ----------
 
   function renderWhoamiBar() {
@@ -289,6 +304,7 @@
     state.loading = true;
     render();
     await loadTrainings();
+    loadNextMatch().then(render); // im Hintergrund, blockiert den Rest nicht
     state.loading = false;
     render();
   }
@@ -321,7 +337,9 @@
     const navAdmin = document.getElementById("nav-admin");
     if (navAdmin) navAdmin.onclick = async () => {
       state.view = "admin"; state.loading = true; render();
-      await loadPlayers(); state.loading = false; render();
+      await loadPlayers();
+      if (!state.nextMatch) await loadNextMatch();
+      state.loading = false; render();
     };
 
     if (state.view === "admin") bindAdmin();
@@ -371,6 +389,27 @@
       </div>`;
   }
 
+  function renderNextMatchBanner() {
+    const nm = state.nextMatch;
+    if (!nm || !nm.match) return ""; // "nur ein schoenes Feature" - bei Fehlern einfach unsichtbar bleiben, nicht stoeren
+    const m = nm.match;
+    const dt = new Date(`${m.date}T${m.time}:00`);
+    const heimAuswaerts = m.isHome ? "Heimspiel" : "Auswärtsspiel";
+    const gegnerLabel = m.isHome ? `TSV Utzenaich – ${escapeHtml(m.opponent)}` : `${escapeHtml(m.opponent)} – TSV Utzenaich`;
+    return `
+      <div class="next-match-banner">
+        <div>
+          <div style="font-weight:700;">⚽ Nächstes Spiel: ${gegnerLabel}</div>
+          <div class="muted">${heimAuswaerts} · ${fmtDate(m.date)} · ${m.time} Uhr${m.ort ? ` · ${escapeHtml(m.ort)}` : ""}</div>
+          ${m.note ? `<div class="muted" style="margin-top:2px;">${escapeHtml(m.note)}</div>` : ""}
+        </div>
+        <div style="text-align:right;">
+          <span data-countdown-target="${dt.toISOString()}" class="muted">${formatCountdown(dt)}</span><br>
+          <span class="source-hint">${nm.source === "manual" ? "manuell eingetragen" : `Quelle: fan.at${nm.stale ? " (evtl. nicht mehr ganz aktuell)" : ""}`}</span>
+        </div>
+      </div>`;
+  }
+
   function renderTrainings() {
     const next = getNextTraining();
     const visible = trainingsInCurrentWeek();
@@ -381,7 +420,7 @@
         ? `<div class="card"><p class="empty">Keine Trainings in dieser Woche.</p></div>`
         : visible.map((t) => renderTrainingCard(t, next)).join("");
 
-    return renderNextTrainingBanner() + renderWeekNav() + list;
+    return renderNextTrainingBanner() + renderNextMatchBanner() + renderWeekNav() + list;
   }
 
   function renderTrainingCard(t, next) {
@@ -391,6 +430,9 @@
     const closed = isVotingClosed(t);
     const isNext = next && next.id === t.id;
     const dt = trainingDateTime(t);
+    const boxOpen = !!state.reasonBoxOpen[t.id];
+    const pendingStatus = state.reasonPendingStatus[t.id];
+    const effectiveStatus = pendingStatus === "vielleicht" || pendingStatus === "absage" ? pendingStatus : "zusage";
 
     return `
       <div class="card training ${isNext ? "next-training" : ""}" data-id="${t.id}">
@@ -414,11 +456,18 @@
             <button data-status="vielleicht" class="${status === "vielleicht" ? "active-vielleicht" : "inactive"}">Vielleicht</button>
             <button data-status="absage" class="${status === "absage" ? "active-absage" : "inactive"}">Absage</button>
           </div>
-          <div class="reason-box" style="display:${status === "vielleicht" || status === "absage" ? "block" : "none"};margin-top:10px;">
-            <label>Grund (Pflichtfeld)</label>
-            <textarea class="reason-input" placeholder="z. B. beruflich verhindert, verletzt, im Urlaub …">${escapeHtml(t.myReason || "")}</textarea>
+          ${status === "zusage" && !boxOpen ? `
+          <div style="margin-top:8px;">
+            <button class="small secondary btn-toggle-note">${t.myReason ? "Notiz bearbeiten" : "+ Notiz hinzufügen (optional)"}</button>
+          </div>` : ""}
+          <div class="reason-box" style="display:${boxOpen ? "block" : "none"};margin-top:10px;">
+            <label>${effectiveStatus === "zusage" ? "Notiz (optional)" : "Grund (Pflichtfeld)"}</label>
+            <textarea class="reason-input" placeholder="z. B. beruflich verhindert, verletzt, im Urlaub … (oder bei Zusage z. B. „komme 10 Minuten später“)">${effectiveStatus === "zusage" ? escapeHtml(t.myReason || "") : ""}</textarea>
             <div class="error reason-error" style="display:none;">Bitte einen Grund angeben.</div>
-            <div style="margin-top:8px;"><button class="small save-reason">Speichern</button></div>
+            <div style="margin-top:8px;">
+              <button class="small save-reason">Speichern</button>
+              <button class="small secondary btn-cancel-note">Abbrechen</button>
+            </div>
           </div>
         `}
 
@@ -449,7 +498,7 @@
         </div>` : "";
     return `
       <div class="card" style="background:var(--bg);margin-top:10px;box-shadow:none;">
-        ${section("zusage", "Zusage", "zusage", false)}
+        ${section("zusage", "Zusage", "zusage", true)}
         ${section("vielleicht", "Vielleicht", "vielleicht", true)}
         ${section("absage", "Absage", "absage", true)}
         ${section("offen", "Offen", "offen", false)}
@@ -482,24 +531,52 @@
 
         card.querySelectorAll(".rsvp-buttons button").forEach((btn) => {
           btn.onclick = async () => {
-            const status = btn.getAttribute("data-status");
-            if (status === "zusage") {
+            const clickedStatus = btn.getAttribute("data-status");
+            if (clickedStatus === "zusage") {
+              if (t.myStatus === "zusage") return; // schon zugesagt, nichts zu tun
+              delete state.reasonBoxOpen[id];
+              delete state.reasonPendingStatus[id];
               await submitRsvp(id, "zusage", "");
               return;
             }
-            reasonBox.style.display = "block";
-            reasonBox.dataset.pending = status;
-            reasonInput.focus();
+            // Vielleicht/Absage: Box IMMER leer oeffnen (frisch eingeben), auch wenn
+            // vorher schon einmal ein Grund gespeichert war.
+            state.reasonBoxOpen[id] = true;
+            state.reasonPendingStatus[id] = clickedStatus;
+            render();
           };
         });
 
+        const toggleNoteBtn = card.querySelector(".btn-toggle-note");
+        if (toggleNoteBtn) {
+          toggleNoteBtn.onclick = () => {
+            state.reasonBoxOpen[id] = true;
+            delete state.reasonPendingStatus[id]; // Zusage-Notiz, kein Pflichtfeld
+            render();
+          };
+        }
+
+        const cancelBtn = card.querySelector(".btn-cancel-note");
+        if (cancelBtn) {
+          cancelBtn.onclick = () => {
+            delete state.reasonBoxOpen[id];
+            delete state.reasonPendingStatus[id];
+            render();
+          };
+        }
+
         card.querySelector(".save-reason").onclick = async () => {
-          const pending = reasonBox.dataset.pending || t.myStatus;
-          const status = pending === "vielleicht" || pending === "absage" ? pending : "vielleicht";
+          const pending = state.reasonPendingStatus[id];
+          const targetStatus = pending === "vielleicht" || pending === "absage" ? pending : "zusage";
           const text = reasonInput.value.trim();
-          if (!text) { reasonError.style.display = "block"; return; }
+          if (targetStatus !== "zusage" && !text) {
+            reasonError.style.display = "block";
+            return;
+          }
           reasonError.style.display = "none";
-          await submitRsvp(id, status, text);
+          delete state.reasonBoxOpen[id];
+          delete state.reasonPendingStatus[id];
+          await submitRsvp(id, targetStatus, text);
         };
       }
 
@@ -542,11 +619,12 @@
       <div class="card">
         <h2>Trainingsbeteiligung (${state.stats.trainingCount} Trainings gesamt)</h2>
         <table>
-          <thead><tr><th>Spieler</th><th>Zusagen</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
+          <thead><tr><th>Spieler</th><th>Zusagen</th><th>Quote</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
           <tbody>
             ${state.stats.rows.map((r) => `<tr>
               <td>${escapeHtml(r.name)}</td>
               <td>${r.zusagen}</td>
+              <td>${r.quote}%</td>
               <td>${r.vielleicht}</td>
               <td>${r.absagen}</td>
               <td>${r.offen}</td>
@@ -560,7 +638,43 @@
 
   function renderAdmin() {
     const visible = trainingsInCurrentWeek();
+    const nm = state.nextMatch;
+    const hasManual = nm && nm.source === "manual";
     return `
+      <div class="card">
+        <h2>Nächstes Spiel (von fan.at)</h2>
+        ${!nm ? `<p class="muted">Lade …</p>` : nm.source === "not_available" ? `
+          <p class="error" style="margin:0 0 10px;">⚠️ Konnte gerade nicht automatisch von fan.at geladen werden. Das beeinträchtigt den Rest der App nicht — betrifft nur diese Zusatzanzeige. Bis das wieder klappt, könnt ihr das nächste Spiel hier manuell eintragen:</p>
+        ` : nm.source === "fan.at" ? `
+          <p class="muted">Aktuell automatisch geladen: <b>${escapeHtml(nm.match.opponent)}</b> am ${fmtDate(nm.match.date)}, ${nm.match.time} Uhr (${nm.match.isHome ? "Heimspiel" : "Auswärtsspiel"}).${nm.stale ? " ⚠️ Eventuell nicht mehr ganz aktuell." : ""}</p>
+        ` : `
+          <p class="muted">Aktuell manuell eingetragen: <b>${escapeHtml(nm.match.opponent)}</b> am ${fmtDate(nm.match.date)}, ${nm.match.time} Uhr.</p>
+        `}
+        <div class="row">
+          <div><label>Gegner</label><input type="text" id="nm-opponent" placeholder="z. B. FC Münzkirchen" value="${hasManual ? escapeHtml(nm.match.opponent) : ""}"></div>
+          <div><label>Heim/Auswärts</label>
+            <select id="nm-is-home">
+              <option value="1" ${hasManual && nm.match.isHome ? "selected" : ""}>Heimspiel</option>
+              <option value="0" ${hasManual && !nm.match.isHome ? "selected" : ""}>Auswärtsspiel</option>
+            </select>
+          </div>
+        </div>
+        <div class="row">
+          <div><label>Datum</label><input type="date" id="nm-date" value="${hasManual ? nm.match.date : ""}"></div>
+          <div><label>Uhrzeit</label><input type="time" id="nm-time" value="${hasManual ? nm.match.time : ""}"></div>
+        </div>
+        <label>Ort (optional)</label>
+        <input type="text" id="nm-ort" placeholder="z. B. Sportplatz Utzenaich" value="${hasManual ? escapeHtml(nm.match.ort || "") : ""}">
+        <label>Hinweis (optional)</label>
+        <input type="text" id="nm-note" placeholder="z. B. Meisterschaftsspiel Runde 5" value="${hasManual ? escapeHtml(nm.match.note || "") : ""}">
+        <div id="nm-error" class="error"></div>
+        <div class="row" style="margin-top:12px;">
+          <button id="btn-save-next-match" style="flex:0 0 auto;">Manuell speichern</button>
+          ${hasManual ? `<button class="secondary" id="btn-clear-next-match" style="flex:0 0 auto;">Manuelle Eingabe löschen (zurück zu fan.at)</button>` : ""}
+        </div>
+        <p class="muted" style="margin-top:10px;font-size:12px;">Eine manuelle Eingabe hat immer Vorrang vor den fan.at-Daten. Löschen, um wieder automatisch zu laden.</p>
+      </div>
+
       <div class="card">
         <h2>Neues Training anlegen</h2>
         <div class="row">
@@ -619,6 +733,40 @@
 
   function bindAdmin() {
     bindWeekNav(render);
+
+    const saveNmBtn = document.getElementById("btn-save-next-match");
+    if (saveNmBtn) {
+      saveNmBtn.onclick = async () => {
+        const opponent = document.getElementById("nm-opponent").value.trim();
+        const isHome = document.getElementById("nm-is-home").value === "1";
+        const date = document.getElementById("nm-date").value;
+        const time = document.getElementById("nm-time").value;
+        const ort = document.getElementById("nm-ort").value.trim();
+        const note = document.getElementById("nm-note").value.trim();
+        const err = document.getElementById("nm-error");
+        err.textContent = "";
+        try {
+          await api("/next-match/manual", { method: "POST", body: { opponent, isHome, date, time, ort, note } });
+          await loadNextMatch();
+          render();
+        } catch (e) {
+          err.textContent = e.message;
+        }
+      };
+    }
+
+    const clearNmBtn = document.getElementById("btn-clear-next-match");
+    if (clearNmBtn) {
+      clearNmBtn.onclick = async () => {
+        try {
+          await api("/next-match/manual", { method: "DELETE" });
+          await loadNextMatch();
+          render();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    }
 
     document.getElementById("btn-add-training").onclick = async () => {
       const date = document.getElementById("new-date").value;
@@ -727,7 +875,10 @@
   (async function init() {
     try {
       await loadMe();
-      if (state.me) await loadTrainings();
+      if (state.me) {
+        await loadTrainings();
+        loadNextMatch().then(render); // im Hintergrund, blockiert den Rest nicht
+      }
     } catch (e) {
       // ignore
     }

@@ -82,6 +82,31 @@ function initSchema() {
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
       `);
+      // Zwischenspeicher fuer das von fan.at abgerufene naechste Spiel, damit nicht bei
+      // jedem Seitenaufruf neu abgerufen werden muss und bei einem kurzzeitigen Ausfall
+      // von fan.at trotzdem noch die zuletzt bekannten Daten gezeigt werden koennen.
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS next_match_cache (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          data TEXT NOT NULL,
+          fetched_at TEXT NOT NULL
+        )
+      `);
+      // Manuelle Eingabe durch einen Trainer - hat immer Vorrang vor den fan.at-Daten,
+      // falls vorhanden. Gedacht als Rueckfalloption, wenn der automatische Abruf mal
+      // nicht klappt oder sich fan.at strukturell aendert.
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS next_match_manual (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          opponent TEXT NOT NULL,
+          date TEXT NOT NULL,
+          time TEXT NOT NULL,
+          is_home INTEGER NOT NULL DEFAULT 1,
+          ort TEXT,
+          note TEXT,
+          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
       // Migration fuer Datenbanken aus der Vor-Vercel-Version (falls per --from-file importiert):
       // is_guest wird nicht mehr gebraucht, macht aber nichts, wenn die Spalte noch existiert.
       await ensureColumn("players", "is_admin", "INTEGER NOT NULL DEFAULT 0");
