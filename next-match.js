@@ -14,7 +14,7 @@
 // entsprechend der dann aktuellen Struktur anpassen.
 
 const FAN_AT_URL = "https://spg-utzenaich-antiesenhofen.fan.at/spiele";
-const FETCH_TIMEOUT_MS = 6000;
+const FETCH_TIMEOUT_MS = 8000;
 
 function stripHtml(html) {
   return html
@@ -124,7 +124,11 @@ async function fetchNextMatchFromFanAt() {
   try {
     const res = await fetch(FAN_AT_URL, {
       signal: controller.signal,
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; TrainingsplanerBot/1.0)" },
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
+      },
     });
     if (!res.ok) throw new Error(`fan.at antwortete mit Status ${res.status}`);
     const html = await res.text();
@@ -134,6 +138,20 @@ async function fetchNextMatchFromFanAt() {
 
     const viaText = tryParseVisibleText(html);
     if (viaText) return { ...viaText, sourceUrl: FAN_AT_URL };
+
+    // Zusaetzliche Diagnose: wenn die Seite offensichtlich eine leere App-Huelle ist, die ihren
+    // Inhalt erst per JavaScript im Browser nachlaedt, kann ein normaler Server-Abruf (ohne
+    // Browser) das grundsaetzlich nicht sehen - das waere dann keine "Struktur geaendert",
+    // sondern eine grundsaetzliche Einschraenkung. Genauere Fehlermeldung dafuer:
+    const looksLikeEmptyAppShell =
+      html.length < 5000 ||
+      /<app-root[^>]*>\s*<\/app-root>/i.test(html) ||
+      /please enable javascript|you need to enable javascript|noscript/i.test(html);
+    if (looksLikeEmptyAppShell) {
+      throw new Error(
+        "fan.at liefert offenbar nur eine leere Seiten-Huelle aus, die Inhalte werden erst per JavaScript im Browser nachgeladen. Ein Server-Abruf ohne Browser kann diese Daten dann grundsaetzlich nicht sehen - das ist keine Struktur-Aenderung, sondern eine technische Grenze dieses Ansatzes."
+      );
+    }
 
     throw new Error("Konnte kein kommendes Spiel im HTML von fan.at erkennen (Seitenstruktur evtl. geaendert).");
   } finally {

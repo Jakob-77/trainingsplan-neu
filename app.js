@@ -644,7 +644,8 @@
       <div class="card">
         <h2>Nächstes Spiel (von fan.at)</h2>
         ${!nm ? `<p class="muted">Lade …</p>` : nm.source === "not_available" ? `
-          <p class="error" style="margin:0 0 10px;">⚠️ Konnte gerade nicht automatisch von fan.at geladen werden. Das beeinträchtigt den Rest der App nicht — betrifft nur diese Zusatzanzeige. Bis das wieder klappt, könnt ihr das nächste Spiel hier manuell eintragen:</p>
+          <p class="error" style="margin:0 0 6px;">⚠️ Konnte gerade nicht automatisch von fan.at geladen werden. Das beeinträchtigt den Rest der App nicht — betrifft nur diese Zusatzanzeige. Bis das wieder klappt, könnt ihr das nächste Spiel hier manuell eintragen:</p>
+          ${nm.error ? `<p class="muted" style="font-size:11px;font-family:monospace;margin:0 0 10px;">${escapeHtml(nm.error)}</p>` : ""}
         ` : nm.source === "fan.at" ? `
           <p class="muted">Aktuell automatisch geladen: <b>${escapeHtml(nm.match.opponent)}</b> am ${fmtDate(nm.match.date)}, ${nm.match.time} Uhr (${nm.match.isHome ? "Heimspiel" : "Auswärtsspiel"}).${nm.stale ? " ⚠️ Eventuell nicht mehr ganz aktuell." : ""}</p>
         ` : `
@@ -668,6 +669,9 @@
         <label>Hinweis (optional)</label>
         <input type="text" id="nm-note" placeholder="z. B. Meisterschaftsspiel Runde 5" value="${hasManual ? escapeHtml(nm.match.note || "") : ""}">
         <div id="nm-error" class="error"></div>
+        <div class="row" style="margin-top:12px;">
+          <button id="btn-retry-next-match" class="secondary" style="flex:0 0 auto;">Jetzt erneut von fan.at versuchen</button>
+        </div>
         <div class="row" style="margin-top:12px;">
           <button id="btn-save-next-match" style="flex:0 0 auto;">Manuell speichern</button>
           ${hasManual ? `<button class="secondary" id="btn-clear-next-match" style="flex:0 0 auto;">Manuelle Eingabe löschen (zurück zu fan.at)</button>` : ""}
@@ -733,6 +737,21 @@
 
   function bindAdmin() {
     bindWeekNav(render);
+
+    const retryNmBtn = document.getElementById("btn-retry-next-match");
+    if (retryNmBtn) {
+      retryNmBtn.onclick = async () => {
+        retryNmBtn.disabled = true;
+        retryNmBtn.textContent = "Versuche es …";
+        try {
+          const data = await api("/next-match?force=1");
+          state.nextMatch = data;
+        } catch (e) {
+          state.nextMatch = { source: "not_available", match: null, error: e.message };
+        }
+        render();
+      };
+    }
 
     const saveNmBtn = document.getElementById("btn-save-next-match");
     if (saveNmBtn) {

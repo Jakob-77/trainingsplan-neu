@@ -300,11 +300,12 @@ app.get("/api/next-match", requireLogin, async (req, res) => {
     });
   }
 
+  const force = req.query.force === "1";
   const cached = await db.get("SELECT * FROM next_match_cache WHERE id = 1", []);
   const cachedData = cached ? JSON.parse(cached.data) : null;
   const cacheAge = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
 
-  if (cachedData && cacheAge < NEXT_MATCH_CACHE_TTL_MS) {
+  if (!force && cachedData && cacheAge < NEXT_MATCH_CACHE_TTL_MS) {
     return res.json({ source: "fan.at", match: cachedData, cached: true });
   }
 

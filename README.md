@@ -118,7 +118,10 @@ gedachten Webseite ("Screen Scraping").
   betroffen.** Das war ausdrücklich so gewünscht und ist bewusst so gebaut (mehrfache
   Absicherung: Zwischenspeicher, mehrere Erkennungsversuche, überall try/catch).
 - Als Rückfalloption könnt ihr das nächste Spiel jederzeit unter Verwaltung → "Nächstes Spiel"
-  manuell eintragen — das hat automatisch Vorrang vor den fan.at-Daten.
+  manuell eintragen — das hat automatisch Vorrang vor den fan.at-Daten. Über den Button "Jetzt
+  erneut von fan.at versuchen" könnt ihr einen frischen Abrufversuch auslösen, ohne auf ein neues
+  Deployment warten zu müssen. Bei einem Fehlschlag zeigt euch die Verwaltung die genaue technische
+  Fehlermeldung an (klein, grau) — die hilft bei der Diagnose, falls mal etwas angepasst werden muss.
 - Falls eine Reparatur nötig wird: die Datei `next-match.js` enthält die Erkennungslogik
   (`tryParseVisibleText` / `tryParseJsonLd`) mit ausführlichen Kommentaren, wo genau angesetzt
   werden müsste.
