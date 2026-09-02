@@ -18,6 +18,8 @@
     showMatchBanner: true, // vom Server geladene Einstellung - Trainer koennen die Spielvorschau ausblenden
     playersListOpen: false, // Spielerliste in der Verwaltung ist bei vielen Spielern lang - eingeklappt starten
     playersFilter: "",
+    editingTrainingId: null, // welches Training gerade in der Verwaltung bearbeitet wird
+    editingMatchId: null, // welches Spiel gerade in der Verwaltung bearbeitet wird
   };
 
   function escapeHtml(str) {
@@ -661,9 +663,9 @@
     }
     return `
       <div class="card">
-        <h2>Trainingsbeteiligung (${state.stats.trainingCount} Trainings gesamt)</h2>
+        <h2>Trainingsbeteiligung (${state.stats.trainingCount} Trainings gesamt, davon ${state.stats.pastTrainingCount} bereits stattgefunden)</h2>
         <table>
-          <thead><tr><th>Spieler</th><th>Zusagen</th><th>Quote</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
+          <thead><tr><th>Spieler</th><th>Zusagen</th><th>Quote*</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
           <tbody>
             ${state.stats.rows.map((r) => `<tr>
               <td>${escapeHtml(r.name)}</td>
@@ -675,6 +677,7 @@
             </tr>`).join("")}
           </tbody>
         </table>
+        <p class="muted" style="margin-top:8px;font-size:11.5px;">*Quote = Zusagen bezogen auf die bisher bereits stattgefundenen Trainings (zukünftige, noch offene Trainings zählen nicht mit).</p>
       </div>`;
   }
 
@@ -692,14 +695,53 @@
           Spielvorschau im Trainingsplan anzeigen
         </label>
 
-        ${sortedMatches.length === 0 ? '<p class="empty">Noch keine Spiele eingetragen.</p>' : sortedMatches.map((m) => `
+        ${sortedMatches.length === 0 ? '<p class="empty">Noch keine Spiele eingetragen.</p>' : sortedMatches.map((m) => {
+          const isEditingMatch = state.editingMatchId === m.id;
+          if (isEditingMatch) {
+            return `
+            <div class="training" data-match-edit-id="${m.id}">
+              <div class="row">
+                <div><label>Gegner</label><input type="text" class="em-opponent" value="${escapeHtml(m.opponent)}"></div>
+                <div><label>Heim/Auswärts</label>
+                  <select class="em-is-home">
+                    <option value="1" ${m.isHome ? "selected" : ""}>Heimspiel</option>
+                    <option value="0" ${!m.isHome ? "selected" : ""}>Auswärtsspiel</option>
+                  </select>
+                </div>
+              </div>
+              <div class="row">
+                <div><label>Datum</label><input type="date" class="em-date" value="${m.date}"></div>
+                <div><label>Uhrzeit</label><input type="time" class="em-time" value="${m.time}"></div>
+              </div>
+              <label>Gegner-Logo (Bild-URL, optional)</label>
+              <input type="text" class="em-logo" value="${escapeHtml(m.opponentLogoUrl || "")}">
+              <div class="row">
+                <div><label>Runde (optional)</label><input type="text" class="em-round" value="${escapeHtml(m.round || "")}"></div>
+                <div><label>Schiedsrichter (optional)</label><input type="text" class="em-referee" value="${escapeHtml(m.referee || "")}"></div>
+              </div>
+              <label>Ort (optional)</label>
+              <input type="text" class="em-ort" value="${escapeHtml(m.ort || "")}">
+              <label>Hinweis (optional)</label>
+              <input type="text" class="em-note" value="${escapeHtml(m.note || "")}">
+              <div class="error em-error" style="display:none;"></div>
+              <div class="row" style="margin-top:8px;">
+                <button class="small btn-save-match" style="flex:0 0 auto;">Speichern</button>
+                <button class="small secondary btn-cancel-edit-match" style="flex:0 0 auto;">Abbrechen</button>
+              </div>
+            </div>`;
+          }
+          return `
           <div class="list-item">
             <span style="display:flex;align-items:center;gap:8px;">
               ${m.opponentLogoUrl ? `<img src="${escapeHtml(m.opponentLogoUrl)}" alt="" class="match-logo-sm">` : ""}
               <span>${m.round ? `<span class="muted">${escapeHtml(m.round)}:</span> ` : ""}${m.isHome ? `TSV Utzenaich – ${escapeHtml(m.opponent)}` : `${escapeHtml(m.opponent)} – TSV Utzenaich`} <span class="muted">(${fmtDate(m.date)}, ${m.time} Uhr)</span></span>
             </span>
-            <button class="small secondary btn-delete-match" data-match-id="${m.id}">Löschen</button>
-          </div>`).join("")}
+            <span class="row" style="max-width:200px;">
+              <button class="small secondary btn-edit-match" data-match-id="${m.id}">Bearbeiten</button>
+              <button class="small secondary btn-delete-match" data-match-id="${m.id}">Löschen</button>
+            </span>
+          </div>`;
+        }).join("")}
 
         <div style="margin-top:14px;"><button class="small secondary" id="btn-import-season">📥 Saison-Vorlage importieren (10 Spiele, Runde 4–13)</button></div>
         <div id="import-status" class="muted" style="margin-top:6px;"></div>
@@ -781,14 +823,34 @@
         ${renderWeekNav()}
         ${state.trainings.length === 0 ? '<p class="empty">Noch keine Trainings.</p>' : visible.length === 0 ? '<p class="empty">Keine Trainings in dieser Woche.</p>' : visible.map((t) => {
           const guests = t.guests || [];
+          const isEditing = state.editingTrainingId === t.id;
           return `
           <div class="training" data-admin-id="${t.id}">
+            ${isEditing ? `
+            <div class="row">
+              <div><label>Datum</label><input type="date" class="edit-date" value="${t.date}"></div>
+              <div><label>Uhrzeit</label><input type="time" class="edit-time" value="${t.time}"></div>
+            </div>
+            <label>Ort</label>
+            <input type="text" class="edit-ort" value="${escapeHtml(t.ort || "")}">
+            <label>Hinweis (optional)</label>
+            <input type="text" class="edit-note" value="${escapeHtml(t.note || "")}">
+            <div class="error edit-error" style="display:none;"></div>
+            <div class="row" style="margin-top:8px;">
+              <button class="small btn-save-training" style="flex:0 0 auto;">Speichern</button>
+              <button class="small secondary btn-cancel-edit-training" style="flex:0 0 auto;">Abbrechen</button>
+            </div>
+            ` : `
             <div class="head">
               <div>
                 <div class="when">${fmtDate(t.date)} · ${t.time} Uhr</div>
                 <div class="where">${escapeHtml(t.ort || "")}</div>
+                ${t.note ? `<div class="muted" style="margin-top:4px;">${escapeHtml(t.note)}</div>` : ""}
               </div>
-              <button class="small secondary btn-delete-training">Löschen</button>
+              <span class="row" style="max-width:200px;">
+                <button class="small secondary btn-edit-training">Bearbeiten</button>
+                <button class="small secondary btn-delete-training">Löschen</button>
+              </span>
             </div>
             <label style="margin-top:10px;">Gastspieler für dieses Training hinzufügen</label>
             <div class="row">
@@ -800,6 +862,7 @@
             <div style="margin-top:8px;">
               ${guests.map((g) => `<span class="pill zusage" style="margin:2px 4px 2px 0;">${escapeHtml(g.name)} <a href="#" class="guest-remove" data-guest-id="${g.id}" style="color:inherit;text-decoration:none;">✕</a></span>`).join("")}
             </div>` : `<p class="muted" style="margin-top:8px;">Noch keine Gastspieler für dieses Training.</p>`}
+            `}
           </div>`;
         }).join("")}
       </div>
@@ -914,6 +977,52 @@
       };
     });
 
+    document.querySelectorAll(".btn-edit-match").forEach((btn) => {
+      btn.onclick = () => {
+        state.editingMatchId = Number(btn.getAttribute("data-match-id"));
+        render();
+      };
+    });
+
+    document.querySelectorAll(".btn-cancel-edit-match").forEach((btn) => {
+      btn.onclick = () => {
+        state.editingMatchId = null;
+        render();
+      };
+    });
+
+    document.querySelectorAll(".btn-save-match").forEach((btn) => {
+      btn.onclick = async () => {
+        const card = btn.closest("[data-match-edit-id]");
+        const id = card.getAttribute("data-match-edit-id");
+        const opponent = card.querySelector(".em-opponent").value.trim();
+        const isHome = card.querySelector(".em-is-home").value === "1";
+        const date = card.querySelector(".em-date").value;
+        const time = card.querySelector(".em-time").value;
+        const opponentLogoUrl = card.querySelector(".em-logo").value.trim();
+        const round = card.querySelector(".em-round").value.trim();
+        const referee = card.querySelector(".em-referee").value.trim();
+        const ort = card.querySelector(".em-ort").value.trim();
+        const note = card.querySelector(".em-note").value.trim();
+        const err = card.querySelector(".em-error");
+        err.style.display = "none";
+        if (!opponent || !date || !time) {
+          err.textContent = "Bitte Gegner, Datum und Uhrzeit angeben.";
+          err.style.display = "block";
+          return;
+        }
+        try {
+          await api(`/matches/${id}`, { method: "PUT", body: { opponent, isHome, date, time, opponentLogoUrl, round, referee, ort, note } });
+          state.editingMatchId = null;
+          await loadMatches();
+          render();
+        } catch (e) {
+          err.textContent = e.message;
+          err.style.display = "block";
+        }
+      };
+    });
+
     const saveNmBtn = document.getElementById("btn-save-next-match");
     if (saveNmBtn) {
       saveNmBtn.onclick = async () => {
@@ -1018,6 +1127,48 @@
           render();
         } catch (e) {
           alert(e.message);
+        }
+      };
+    });
+
+    document.querySelectorAll(".btn-edit-training").forEach((btn) => {
+      btn.onclick = () => {
+        const card = btn.closest("[data-admin-id]");
+        state.editingTrainingId = Number(card.getAttribute("data-admin-id"));
+        render();
+      };
+    });
+
+    document.querySelectorAll(".btn-cancel-edit-training").forEach((btn) => {
+      btn.onclick = () => {
+        state.editingTrainingId = null;
+        render();
+      };
+    });
+
+    document.querySelectorAll(".btn-save-training").forEach((btn) => {
+      btn.onclick = async () => {
+        const card = btn.closest("[data-admin-id]");
+        const id = card.getAttribute("data-admin-id");
+        const date = card.querySelector(".edit-date").value;
+        const time = card.querySelector(".edit-time").value;
+        const ort = card.querySelector(".edit-ort").value.trim();
+        const note = card.querySelector(".edit-note").value.trim();
+        const err = card.querySelector(".edit-error");
+        err.style.display = "none";
+        if (!date || !time || !ort) {
+          err.textContent = "Bitte Datum, Uhrzeit und Ort angeben.";
+          err.style.display = "block";
+          return;
+        }
+        try {
+          await api(`/trainings/${id}`, { method: "PUT", body: { date, time, ort, note } });
+          state.editingTrainingId = null;
+          await loadTrainings();
+          render();
+        } catch (e) {
+          err.textContent = e.message;
+          err.style.display = "block";
         }
       };
     });

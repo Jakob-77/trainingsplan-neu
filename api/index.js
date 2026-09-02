@@ -126,6 +126,14 @@ app.post("/api/players/:id/admin", requireLogin, requireAdmin, async (req, res) 
   const id = Number(req.params.id);
   const p = await db.get("SELECT * FROM players WHERE id = ?", [id]);
   if (!p) return res.status(404).json({ error: "Spieler nicht gefunden." });
+  if (p.is_admin) {
+    // Verhindert, dass der letzte verbleibende Trainer sich (oder ein anderer Trainer sich
+    // gegenseitig) die Rolle entzieht und dadurch niemand mehr Zugriff auf die Verwaltung hat.
+    const adminCountRow = await db.get("SELECT COUNT(*) AS c FROM players WHERE is_admin = 1", []);
+    if (adminCountRow.c <= 1) {
+      return res.status(400).json({ error: "Das ist der letzte verbleibende Trainer - mindestens einer muss bestehen bleiben." });
+    }
+  }
   await db.run("UPDATE players SET is_admin = ? WHERE id = ?", [p.is_admin ? 0 : 1, id]);
   res.json({ ok: true });
 });
@@ -188,6 +196,26 @@ app.post("/api/trainings", requireLogin, requireAdmin, async (req, res) => {
     [date, time, ort.trim(), (note || "").trim() || null]
   );
   res.json({ id: Number(result.lastInsertRowid), inserted: true });
+});
+
+app.put("/api/trainings/:id", requireLogin, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const { date, time, ort, note } = req.body || {};
+  if (!date || !time || !ort || !ort.trim()) {
+    return res.status(400).json({ error: "Bitte Datum, Uhrzeit und Ort angeben." });
+  }
+  const existing = await db.get("SELECT id FROM trainings WHERE id = ?", [id]);
+  if (!existing) return res.status(404).json({ error: "Training nicht gefunden." });
+  // Duplikat-Schutz wie beim Anlegen: kein anderes Training am selben Datum/Uhrzeit
+  const clash = await db.get("SELECT id FROM trainings WHERE date = ? AND time = ? AND id != ?", [date, time, id]);
+  if (clash) {
+    return res.status(400).json({ error: "Es gibt bereits ein anderes Training an diesem Datum/Uhrzeit." });
+  }
+  await db.run(
+    "UPDATE trainings SET date = ?, time = ?, ort = ?, note = ? WHERE id = ?",
+    [date, time, ort.trim(), (note || "").trim() || null, id]
+  );
+  res.json({ ok: true });
 });
 
 app.delete("/api/trainings/:id", requireLogin, requireAdmin, async (req, res) => {
@@ -275,9 +303,20 @@ app.delete("/api/trainings/:id/guests/:guestId", requireLogin, requireAdmin, asy
 
 app.get("/api/stats", requireLogin, async (req, res) => {
   const players = await db.all("SELECT * FROM players ORDER BY name COLLATE NOCASE", []);
-  const trainingCountRow = await db.get("SELECT COUNT(*) AS c FROM trainings", []);
-  const trainingCount = trainingCountRow.c;
+  const trainings = await db.all("SELECT * FROM trainings", []);
+  const trainingCount = trainings.length;
   const responses = await db.all("SELECT * FROM responses", []);
+
+  // Die Quote soll nur auf Basis der bereits stattgefundenen (oder laufenden) Trainings
+  // berechnet werden, nicht auf Basis aller inkl. zukuenftiger - sonst wuerde ein noch
+  // bevorstehendes, unbeantwortetes Training die Quote kuenstlich nach unten ziehen.
+  const now = Date.now();
+  const pastTrainingIds = new Set(
+    trainings
+      .filter((t) => viennaDateTimeToUtc(t.date, t.time).getTime() <= now)
+      .map((t) => t.id)
+  );
+  const pastTrainingCount = pastTrainingIds.size;
 
   const rows = players.map((p) => {
     const mine = responses.filter((r) => r.player_id === p.id);
@@ -285,12 +324,13 @@ app.get("/api/stats", requireLogin, async (req, res) => {
     const vielleicht = mine.filter((r) => r.status === "vielleicht").length;
     const absagen = mine.filter((r) => r.status === "absage").length;
     const offen = trainingCount - zusagen - vielleicht - absagen;
-    const quote = trainingCount > 0 ? Math.round((zusagen / trainingCount) * 100) : 0;
+    const pastZusagen = mine.filter((r) => r.status === "zusage" && pastTrainingIds.has(r.training_id)).length;
+    const quote = pastTrainingCount > 0 ? Math.round((pastZusagen / pastTrainingCount) * 100) : 0;
     return { name: p.name, zusagen, vielleicht, absagen, offen: Math.max(offen, 0), quote };
   });
   rows.sort((a, b) => b.zusagen - a.zusagen);
 
-  res.json({ trainingCount, rows });
+  res.json({ trainingCount, pastTrainingCount, rows });
 });
 
 // ---------- Spielplan (von Trainern gepflegt, inkl. Logos & Schiedsrichter) ----------
@@ -346,6 +386,37 @@ app.post("/api/matches", requireLogin, requireAdmin, async (req, res) => {
     res.json({ ok: true, inserted: result.rowsAffected > 0 });
   } catch (e) {
     res.status(400).json({ error: "Konnte Spiel nicht speichern." });
+  }
+});
+
+app.put("/api/matches/:id", requireLogin, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const { opponent, opponentLogoUrl, date, time, isHome, ort, referee, round, note } = req.body || {};
+  if (!opponent || !opponent.trim() || !date || !time) {
+    return res.status(400).json({ error: "Bitte Gegner, Datum und Uhrzeit angeben." });
+  }
+  const existing = await db.get("SELECT id FROM matches WHERE id = ?", [id]);
+  if (!existing) return res.status(404).json({ error: "Spiel nicht gefunden." });
+  try {
+    await db.run(
+      `UPDATE matches SET opponent = ?, opponent_logo_url = ?, date = ?, time = ?,
+         is_home = ?, ort = ?, referee = ?, round = ?, note = ? WHERE id = ?`,
+      [
+        opponent.trim(),
+        (opponentLogoUrl || "").trim() || null,
+        date,
+        time,
+        isHome ? 1 : 0,
+        (ort || "").trim() || null,
+        (referee || "").trim() || null,
+        (round || "").trim() || null,
+        (note || "").trim() || null,
+        id,
+      ]
+    );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(400).json({ error: "Konnte Spiel nicht speichern (evtl. gibt es dieses Datum/Uhrzeit/Gegner schon)." });
   }
 });
 

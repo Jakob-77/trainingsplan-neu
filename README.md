@@ -136,8 +136,9 @@ und dafür nicht durch Bot-Schutz blockiert.
 
 - Registrierung mit Name, E-Mail und Passwort. Der erste Account wird automatisch Trainer.
 - Login bleibt 180 Tage bestehen und verlängert sich bei jedem Besuch automatisch.
-- Trainer legen Trainings an (Datum, Uhrzeit — Standard 19:00 Uhr —, Ort, optionaler Hinweis)
-  und löschen sie bei Bedarf. **Serientermine**: Wochentage auswählen (Standard: Montag, Dienstag,
+- Trainer legen Trainings an (Datum, Uhrzeit — Standard 19:00 Uhr —, Ort, optionaler Hinweis),
+  können sie **jederzeit nachträglich bearbeiten** (z. B. Datum verschieben, Hinweis ergänzen)
+  und bei Bedarf löschen. **Serientermine**: Wochentage auswählen (Standard: Montag, Dienstag,
   Donnerstag), Uhrzeit/Ort/Hinweis sowie Start- und Enddatum angeben — legt für den ganzen
   Zeitraum automatisch alle passenden Trainings an (z. B. eine ganze Saison auf einen Schlag,
   maximal 150 auf einmal). Bereits vorhandene Termine am selben Datum/Uhrzeit werden dabei
@@ -149,10 +150,11 @@ und dafür nicht durch Bot-Schutz blockiert.
   Trainingsbeginn** (serverseitig abgesichert, nicht nur im Frontend).
 - **Spielplan**: Trainer pflegen ihn in der Verwaltung (Gegner inkl. optionalem Logo, Heim/Auswärts,
   Datum, Uhrzeit, Runde, Schiedsrichter, Ort, Hinweis) — auf Knopfdruck mit einer vorbereiteten
-  Saison-Vorlage (10 Spiele) befüllbar. Das nächste Spiel erscheint automatisch oben im
-  Trainingsplan als Banner mit beiden Vereinslogos und Countdown, lässt sich über einen Schalter
-  in der Verwaltung bei Bedarf auch ganz ausblenden. (Ein automatischer Abruf von fan.at wurde
-  ausprobiert, ist aber technisch nicht zuverlässig möglich — siehe eigener Abschnitt oben.)
+  Saison-Vorlage (10 Spiele) befüllbar, jeder Eintrag jederzeit bearbeitbar oder löschbar. Das
+  nächste Spiel erscheint automatisch oben im Trainingsplan als Banner mit beiden Vereinslogos
+  und Countdown, lässt sich über einen Schalter in der Verwaltung bei Bedarf auch ganz
+  ausblenden. (Ein automatischer Abruf von fan.at wurde ausprobiert, ist aber technisch nicht
+  zuverlässig möglich — siehe eigener Abschnitt oben.)
 - Zu-/Vielleicht-/Absagen werden sofort im Bild angezeigt (optimistisches UI-Update), ohne auf
   die Serverantwort warten zu müssen. Bei einem seltenen Netzwerkfehler wird der vorherige Stand
   automatisch wiederhergestellt.
@@ -177,6 +179,28 @@ und dafür nicht durch Bot-Schutz blockiert.
   serverseitig abgesichert.
 - Als App installierbar (PWA), inkl. eurem Vereinswappen als App-Icon. Kleiner Hinweis
   "powered by Jakob Danecker" im Header.
+
+## Code-Review (Stand: aktuelle Version)
+
+Bei einem vollständigen Durchgang durch die App wurden zwei echte Lücken gefunden und behoben:
+- **Letzter Trainer war nicht geschützt**: Ein Trainer konnte sich (oder ein anderer Trainer sich
+  gegenseitig) die Trainer-Rolle entziehen, auch wenn dadurch niemand mehr Zugriff auf die
+  Verwaltung gehabt hätte. Jetzt blockiert, analog zum bestehenden Schutz vor Selbstlöschung.
+- **Spielplan-Einträge waren nicht bearbeitbar**, nur lösch- und neu anlegbar. Jetzt wie bei
+  Trainings vollständig bearbeitbar.
+
+Zusätzlich geprüft und für in Ordnung befunden: Nutzereingaben werden überall konsequent
+escaped (kein XSS), alle API-Endpunkte sind serverseitig korrekt gegen Trainer-Rechte abgesichert
+(nicht nur im Frontend versteckt), alle package.json-Abhängigkeiten werden tatsächlich verwendet
+(keine überflüssigen oder fehlenden), Service-Worker-Cache-Version wurde nach den vielen
+Änderungen erhöht.
+
+**Ideen für später** (nicht umgesetzt, nur als Anregung):
+- E-Mail- oder Push-Erinnerung vor einem Training (bräuchte einen zusätzlichen Versanddienst)
+- Mehrere Mannschaften/Gruppen mit getrennten Trainingsplänen
+- Einfache Rate-Begrenzung beim Login (Schutz vor automatisiertem Passwort-Erraten — bei einer
+  kleinen, wenig frequentierten Vereins-App ein geringes Risiko, aber möglich nachzurüsten)
+- Export der Statistik als CSV/Excel
 
 ## Hinweis zum Test in dieser Umgebung
 
