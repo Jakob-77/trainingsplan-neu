@@ -103,35 +103,34 @@ dev-server.js                         Nur für lokale Tests, auf Vercel nicht ve
 vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe zur Funktion finden
 ```
 
-## Nächstes Spiel (fan.at-Anbindung)
+## Spielplan
 
-Diese Funktion ruft die öffentliche Spielplan-Seite von fan.at ab (`next-match.js`) — anders als
-ofv.at und ligaportal.at blockiert fan.at automatisierte Zugriffe nicht. Es gibt dafür aber
-**keine offizielle Schnittstelle**, das ist technisch gesehen das Auslesen einer für Menschen
-gedachten Webseite ("Screen Scraping").
+Ein automatischer Abruf von der öffentlichen Spielplan-Seite fan.at wurde ausprobiert. Anders als
+ofv.at und ligaportal.at (die automatisierte Zugriffe aktiv blockieren) lässt fan.at den Abruf
+zwar zu, baut seine Inhalte aber erst per JavaScript im Browser zusammen — ein normaler
+Server-Abruf (wie ihn diese App macht) bekommt deshalb nur eine leere Seiten-Hülle ohne die
+eigentlichen Spieldaten zu sehen. Das ist keine Kleinigkeit, die sich mit einer Regel-Anpassung
+beheben ließe, sondern eine grundsätzliche technische Grenze — eine echte Lösung bräuchte einen
+"Browser im Hintergrund" (z. B. Puppeteer/Chromium), was für dieses Zusatz-Feature unverhältnismäßig
+aufwendig und störanfällig wäre.
 
-**Das bedeutet konkret:**
-- Es funktioniert zuverlässig, solange sich der Seitenaufbau von fan.at nicht ändert.
-- Falls es doch mal aufhört zu funktionieren, merkt ihr das höchstens daran, dass das
-  "Nächstes Spiel"-Banner verschwindet bzw. in der Verwaltung ein Warnhinweis erscheint — **die
-  restliche App (Trainingsanmeldung, Statistik, alles andere) ist davon zu keinem Zeitpunkt
-  betroffen.** Das war ausdrücklich so gewünscht und ist bewusst so gebaut (mehrfache
-  Absicherung: Zwischenspeicher, mehrere Erkennungsversuche, überall try/catch).
-- Als Rückfalloption könnt ihr das nächste Spiel jederzeit unter Verwaltung → "Nächstes Spiel"
-  manuell eintragen — das hat automatisch Vorrang vor den fan.at-Daten. Über den Button "Jetzt
-  erneut von fan.at versuchen" könnt ihr einen frischen Abrufversuch auslösen, ohne auf ein neues
-  Deployment warten zu müssen. Bei einem Fehlschlag zeigt euch die Verwaltung die genaue technische
-  Fehlermeldung an (klein, grau) — die hilft bei der Diagnose, falls mal etwas angepasst werden muss.
-- Falls eine Reparatur nötig wird: die Datei `next-match.js` enthält die Erkennungslogik
-  (`tryParseVisibleText` / `tryParseJsonLd`) mit ausführlichen Kommentaren, wo genau angesetzt
-  werden müsste.
+Deshalb bewusst einfach gehalten: **Trainer pflegen den Spielplan unter Verwaltung → "Spielplan"**
+(Gegner, Heim/Auswärts, Datum, Uhrzeit, optional Gegner-Logo als Bild-URL, Runde, Schiedsrichter,
+Ort, Hinweis). Das zeitlich nächste eingetragene Spiel erscheint automatisch oben im Trainingsplan
+als Banner mit beiden Vereinslogos und Countdown.
 
-**Ehrlicher Hinweis zum Entwicklungsstand:** Diese Erkennungslogik wurde anhand einer Kopie des
-sichtbaren Seiteninhalts entwickelt und mit nachgebauten Beispiel-HTML-Strukturen getestet, aber
-nicht gegen die tatsächliche, aktuelle Rohdatei von fan.at (dafür bestand in dieser Umgebung kein
-Internetzugriff). Es ist gut möglich, dass nach dem ersten Deployment noch eine kleine Anpassung
-nötig ist, falls das echte HTML anders aufgebaut ist als angenommen — dank der Fallback-Logik geht
-dabei aber nichts an der übrigen App kaputt.
+**Schnellstart:** Der Button "Saison-Vorlage importieren" trägt auf einen Klick die zehn zum
+Zeitpunkt der Entwicklung (01.09.2026) bekannten kommenden Spiele (Runde 4–13) samt der offiziellen
+Vereinslogos von fan.at ein — spart beim ersten Einrichten das einzelne Abtippen. Mehrfaches
+Klicken erzeugt keine doppelten Einträge. Danach einfach über das Formular ergänzen, sobald neue
+Runden feststehen. Schiedsrichter werden auf fan.at erst nach dem Spiel im Nachhinein bekannt
+gegeben — das Feld ist deshalb bei zukünftigen Spielen meist leer, kann aber jederzeit von Hand
+nachgetragen werden, sobald ihr es selbst wisst.
+
+Falls ihr das doch noch automatisieren wollt, wäre der zuverlässige Weg das offizielle
+"Vereins-Widget" des Oberösterreichischen Fußballverbands (fussballoesterreich.at, Bereich
+Verein → Vereins-Widgets → "Spielplan pro Mannschaft") — das ist speziell zum Einbetten gedacht
+und dafür nicht durch Bot-Schutz blockiert.
 
 ## Funktionsübersicht
 
@@ -144,12 +143,17 @@ dabei aber nichts an der übrigen App kaputt.
   optional eine kurze Notiz hinterlegt werden (z. B. "komme 10 Minuten später") — jederzeit
   über "Notiz bearbeiten" änderbar. **Die Abstimmung schließt automatisch 1 Stunde vor
   Trainingsbeginn** (serverseitig abgesichert, nicht nur im Frontend).
-- **Nächstes Spiel**: wird automatisch von fan.at abgerufen und oben im Trainingsplan als
-  Banner angezeigt (Gegner, Heim/Auswärts, Datum, Uhrzeit), mit kleinem Hinweis "Quelle: fan.at".
-  Falls der Abruf mal nicht klappt (Seite nicht erreichbar oder Struktur geändert), bleibt die
-  restliche App komplett unbeeinträchtigt — es ist reines Zusatz-Feature. Trainer sehen in der
-  Verwaltung den aktuellen Status und können das nächste Spiel jederzeit manuell eintragen
-  (hat dann automatisch Vorrang vor den fan.at-Daten, bis wieder gelöscht).
+- **Spielplan**: Trainer pflegen ihn in der Verwaltung (Gegner inkl. optionalem Logo, Heim/Auswärts,
+  Datum, Uhrzeit, Runde, Schiedsrichter, Ort, Hinweis) — auf Knopfdruck mit einer vorbereiteten
+  Saison-Vorlage (10 Spiele) befüllbar. Das nächste Spiel erscheint automatisch oben im
+  Trainingsplan als Banner mit beiden Vereinslogos und Countdown, lässt sich über einen Schalter
+  in der Verwaltung bei Bedarf auch ganz ausblenden. (Ein automatischer Abruf von fan.at wurde
+  ausprobiert, ist aber technisch nicht zuverlässig möglich — siehe eigener Abschnitt oben.)
+- Zu-/Vielleicht-/Absagen werden sofort im Bild angezeigt (optimistisches UI-Update), ohne auf
+  die Serverantwort warten zu müssen. Bei einem seltenen Netzwerkfehler wird der vorherige Stand
+  automatisch wiederhergestellt.
+- Die Spielerliste in der Verwaltung ist eingeklappt und lässt sich mit einem Klick aufklappen —
+  inklusive Suchfeld, damit das auch bei 50+ Spielern übersichtlich bleibt.
 - Das **nächste bevorstehende Training wird oben als Banner mit Live-Countdown angezeigt** und in
   der Liste optisch hervorgehoben.
 - **Wochenweise Navigation** (◀ / ▶ / "Aktuelle Woche") sowohl bei den Trainings als auch in der

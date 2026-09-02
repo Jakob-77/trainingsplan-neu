@@ -88,12 +88,17 @@ tr:last-child td{border-bottom:none;}
 @keyframes spin{to{transform:rotate(360deg);}}
 .install-hint{background:var(--grass-light);border:1px solid #cfe3d1;border-radius:8px;padding:10px 14px;font-size:13px;color:var(--grass-dark);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
 .install-hint button{white-space:nowrap;}
+.switch-row{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:10px 0;cursor:pointer;}
+.switch-row input[type=checkbox]{width:auto;}
 .week-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin:4px 0 16px;flex-wrap:wrap;}
 .week-nav .week-label{font-weight:700;font-size:14px;min-width:150px;text-align:center;}
 .next-training-banner{background:var(--grass-dark);color:#fff;border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
 .next-training-banner .muted{color:#cfe3d1;}
 .next-training-banner button{background:#fff;color:var(--grass-dark);border-color:#fff;}
 .training.next-training{border:2px solid var(--grass);box-shadow:0 0 0 3px var(--grass-light);}
-.next-match-banner{background:#1c2f4a;color:#fff;border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
-.next-match-banner .muted{color:#c7d3e8;}
-.next-match-banner .source-hint{color:#8fa0c2;font-size:11px;font-style:italic;}
+.next-match-banner{background:#1c2f4a;color:#fff;border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;}
+.next-match-banner .muted{color:#c7d3e8;font-size:12.5px;}
+.match-teams{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-weight:700;}
+.match-team{display:flex;align-items:center;gap:6px;}
+.match-logo{width:28px;height:28px;object-fit:contain;border-radius:5px;background:#fff;padding:2px;}
+.match-logo-sm{width:20px;height:20px;object-fit:contain;border-radius:4px;background:#fff;padding:1px;vertical-align:middle;}

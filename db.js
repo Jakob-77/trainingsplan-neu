@@ -82,29 +82,31 @@ function initSchema() {
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
       `);
-      // Zwischenspeicher fuer das von fan.at abgerufene naechste Spiel, damit nicht bei
-      // jedem Seitenaufruf neu abgerufen werden muss und bei einem kurzzeitigen Ausfall
-      // von fan.at trotzdem noch die zuletzt bekannten Daten gezeigt werden koennen.
+      // Spielplan, von Trainern manuell gepflegt (inkl. Gegner-Logo und optional Schiedsrichter).
+      // Automatischer Abruf von fan.at wurde ausprobiert, ist aber technisch nicht zuverlaessig
+      // moeglich (die Seite rendert ihre Inhalte per JavaScript im Browser) - siehe README.
       await client.execute(`
-        CREATE TABLE IF NOT EXISTS next_match_cache (
-          id INTEGER PRIMARY KEY CHECK (id = 1),
-          data TEXT NOT NULL,
-          fetched_at TEXT NOT NULL
-        )
-      `);
-      // Manuelle Eingabe durch einen Trainer - hat immer Vorrang vor den fan.at-Daten,
-      // falls vorhanden. Gedacht als Rueckfalloption, wenn der automatische Abruf mal
-      // nicht klappt oder sich fan.at strukturell aendert.
-      await client.execute(`
-        CREATE TABLE IF NOT EXISTS next_match_manual (
-          id INTEGER PRIMARY KEY CHECK (id = 1),
+        CREATE TABLE IF NOT EXISTS matches (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
           opponent TEXT NOT NULL,
+          opponent_logo_url TEXT,
           date TEXT NOT NULL,
           time TEXT NOT NULL,
           is_home INTEGER NOT NULL DEFAULT 1,
           ort TEXT,
+          referee TEXT,
+          round TEXT,
           note TEXT,
-          updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(opponent, date, time)
+        )
+      `);
+      // Einfache Schluessel-Wert-Tabelle fuer globale Ein-/Ausschalter, z. B. ob die
+      // Spielvorschau im Trainingsplan angezeigt wird.
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
         )
       `);
       // Migration fuer Datenbanken aus der Vor-Vercel-Version (falls per --from-file importiert):

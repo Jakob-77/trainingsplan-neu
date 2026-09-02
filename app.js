@@ -14,7 +14,10 @@
     weekStart: null,   // Date (Montag 00:00) - welche Woche gerade angezeigt wird
     reasonBoxOpen: {}, // trainingId -> true, waehrend eine Notiz/ein Grund gerade eingegeben wird
     reasonPendingStatus: {}, // trainingId -> "vielleicht"|"absage", waehrend diese Box offen ist (leer = Zusage-Notiz)
-    nextMatch: null,   // { source, match, error, cached, stale } - rein informativ, App laeuft auch ohne
+    matches: [],       // Spielplan (manuell gepflegt), rein informativ - App laeuft auch ohne
+    showMatchBanner: true, // vom Server geladene Einstellung - Trainer koennen die Spielvorschau ausblenden
+    playersListOpen: false, // Spielerliste in der Verwaltung ist bei vielen Spielern lang - eingeklappt starten
+    playersFilter: "",
   };
 
   function escapeHtml(str) {
@@ -193,15 +196,31 @@
     state.stats = data;
   }
 
-  // Rein informatives Zusatz-Feature - wenn das fehlschlaegt, darf das den Rest der App
-  // niemals beeintraechtigen, deshalb wird der Fehler hier verschluckt und nur intern
-  // vermerkt (state.nextMatch bleibt dann einfach null / source "not_available").
-  async function loadNextMatch() {
+  // Rein informatives Zusatz-Feature (manuell gepflegter Spielplan) - wenn das fehlschlaegt,
+  // darf das den Rest der App niemals beeintraechtigen.
+  async function loadMatches() {
     try {
-      const data = await api("/next-match");
-      state.nextMatch = data;
+      const data = await api("/matches");
+      state.matches = data.matches;
     } catch (e) {
-      state.nextMatch = { source: "not_available", match: null };
+      state.matches = [];
+    }
+  }
+
+  function getNextMatch() {
+    const now = Date.now();
+    const upcoming = state.matches
+      .filter((m) => new Date(`${m.date}T${m.time}:00`).getTime() >= now)
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    return upcoming.length > 0 ? upcoming[0] : null;
+  }
+
+  async function loadSettings() {
+    try {
+      const data = await api("/settings");
+      state.showMatchBanner = data.showMatchBanner;
+    } catch (e) {
+      state.showMatchBanner = true; // im Zweifel anzeigen
     }
   }
 
@@ -304,7 +323,7 @@
     state.loading = true;
     render();
     await loadTrainings();
-    loadNextMatch().then(render); // im Hintergrund, blockiert den Rest nicht
+    Promise.all([loadMatches(), loadSettings()]).then(render); // im Hintergrund, blockiert den Rest nicht
     state.loading = false;
     render();
   }
@@ -338,7 +357,7 @@
     if (navAdmin) navAdmin.onclick = async () => {
       state.view = "admin"; state.loading = true; render();
       await loadPlayers();
-      if (!state.nextMatch) await loadNextMatch();
+      if (state.matches.length === 0) await loadMatches();
       state.loading = false; render();
     };
 
@@ -390,22 +409,35 @@
   }
 
   function renderNextMatchBanner() {
-    const nm = state.nextMatch;
-    if (!nm || !nm.match) return ""; // "nur ein schoenes Feature" - bei Fehlern einfach unsichtbar bleiben, nicht stoeren
-    const m = nm.match;
+    if (!state.showMatchBanner) return "";
+    const m = getNextMatch();
+    if (!m) return ""; // kein Spiel eingetragen - Banner bleibt einfach weg
     const dt = new Date(`${m.date}T${m.time}:00`);
     const heimAuswaerts = m.isHome ? "Heimspiel" : "Auswärtsspiel";
-    const gegnerLabel = m.isHome ? `TSV Utzenaich – ${escapeHtml(m.opponent)}` : `${escapeHtml(m.opponent)} – TSV Utzenaich`;
+    const ownLogo = "/icons/club-logo.png";
+    const oppLogo = m.opponentLogoUrl || "";
+    const homeLogo = m.isHome ? ownLogo : oppLogo;
+    const awayLogo = m.isHome ? oppLogo : ownLogo;
+    const homeLabel = m.isHome ? "TSV Utzenaich" : m.opponent;
+    const awayLabel = m.isHome ? m.opponent : "TSV Utzenaich";
     return `
       <div class="next-match-banner">
-        <div>
-          <div style="font-weight:700;">⚽ Nächstes Spiel: ${gegnerLabel}</div>
-          <div class="muted">${heimAuswaerts} · ${fmtDate(m.date)} · ${m.time} Uhr${m.ort ? ` · ${escapeHtml(m.ort)}` : ""}</div>
-          ${m.note ? `<div class="muted" style="margin-top:2px;">${escapeHtml(m.note)}</div>` : ""}
+        <div class="match-teams">
+          <div class="match-team">
+            ${homeLogo ? `<img src="${escapeHtml(homeLogo)}" alt="" class="match-logo">` : ""}
+            <span>${escapeHtml(homeLabel)}</span>
+          </div>
+          <span class="muted">–</span>
+          <div class="match-team">
+            ${awayLogo ? `<img src="${escapeHtml(awayLogo)}" alt="" class="match-logo">` : ""}
+            <span>${escapeHtml(awayLabel)}</span>
+          </div>
         </div>
-        <div style="text-align:right;">
-          <span data-countdown-target="${dt.toISOString()}" class="muted">${formatCountdown(dt)}</span><br>
-          <span class="source-hint">${nm.source === "manual" ? "manuell eingetragen" : `Quelle: fan.at${nm.stale ? " (evtl. nicht mehr ganz aktuell)" : ""}`}</span>
+        <div>
+          <div class="muted">${m.round ? `${escapeHtml(m.round)} · ` : ""}${heimAuswaerts} · ${fmtDate(m.date)} · ${m.time} Uhr${m.ort ? ` · ${escapeHtml(m.ort)}` : ""}</div>
+          ${m.referee ? `<div class="muted">Schiedsrichter: ${escapeHtml(m.referee)}</div>` : ""}
+          ${m.note ? `<div class="muted">${escapeHtml(m.note)}</div>` : ""}
+          <span data-countdown-target="${dt.toISOString()}" class="muted">${formatCountdown(dt)}</span>
         </div>
       </div>`;
   }
@@ -599,11 +631,23 @@
   }
 
   async function submitRsvp(trainingId, status, reason) {
+    const t = state.trainings.find((x) => String(x.id) === String(trainingId));
+    if (!t) return;
+    const previous = { myStatus: t.myStatus, myReason: t.myReason };
+
+    // Optimistisch sofort anzeigen, statt auf die Serverantwort zu warten - fuehlt sich
+    // dadurch unmittelbar an, unabhaengig von der Netzwerk-Latenz.
+    t.myStatus = status;
+    t.myReason = reason || null;
+    render();
+
     try {
       await api(`/trainings/${trainingId}/rsvp`, { method: "POST", body: { status, reason } });
-      await loadTrainings();
-      render();
     } catch (e) {
+      // Fehlgeschlagen - alten Stand wiederherstellen
+      t.myStatus = previous.myStatus;
+      t.myReason = previous.myReason;
+      render();
       alert(e.message);
     }
   }
@@ -638,45 +682,56 @@
 
   function renderAdmin() {
     const visible = trainingsInCurrentWeek();
-    const nm = state.nextMatch;
-    const hasManual = nm && nm.source === "manual";
+    const sortedMatches = [...state.matches].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
     return `
       <div class="card">
-        <h2>Nächstes Spiel (von fan.at)</h2>
-        ${!nm ? `<p class="muted">Lade …</p>` : nm.source === "not_available" ? `
-          <p class="error" style="margin:0 0 6px;">⚠️ Konnte gerade nicht automatisch von fan.at geladen werden. Das beeinträchtigt den Rest der App nicht — betrifft nur diese Zusatzanzeige. Bis das wieder klappt, könnt ihr das nächste Spiel hier manuell eintragen:</p>
-          ${nm.error ? `<p class="muted" style="font-size:11px;font-family:monospace;margin:0 0 10px;">${escapeHtml(nm.error)}</p>` : ""}
-        ` : nm.source === "fan.at" ? `
-          <p class="muted">Aktuell automatisch geladen: <b>${escapeHtml(nm.match.opponent)}</b> am ${fmtDate(nm.match.date)}, ${nm.match.time} Uhr (${nm.match.isHome ? "Heimspiel" : "Auswärtsspiel"}).${nm.stale ? " ⚠️ Eventuell nicht mehr ganz aktuell." : ""}</p>
-        ` : `
-          <p class="muted">Aktuell manuell eingetragen: <b>${escapeHtml(nm.match.opponent)}</b> am ${fmtDate(nm.match.date)}, ${nm.match.time} Uhr.</p>
-        `}
+        <h2>Spielplan</h2>
+        <p class="muted">Das zeitlich nächste Spiel wird automatisch oben im Trainingsplan als Banner angezeigt.</p>
+        <label class="switch-row">
+          <input type="checkbox" id="toggle-match-banner" ${state.showMatchBanner ? "checked" : ""}>
+          Spielvorschau im Trainingsplan anzeigen
+        </label>
+
+        ${sortedMatches.length === 0 ? '<p class="empty">Noch keine Spiele eingetragen.</p>' : sortedMatches.map((m) => `
+          <div class="list-item">
+            <span style="display:flex;align-items:center;gap:8px;">
+              ${m.opponentLogoUrl ? `<img src="${escapeHtml(m.opponentLogoUrl)}" alt="" class="match-logo-sm">` : ""}
+              <span>${m.round ? `<span class="muted">${escapeHtml(m.round)}:</span> ` : ""}${m.isHome ? `TSV Utzenaich – ${escapeHtml(m.opponent)}` : `${escapeHtml(m.opponent)} – TSV Utzenaich`} <span class="muted">(${fmtDate(m.date)}, ${m.time} Uhr)</span></span>
+            </span>
+            <button class="small secondary btn-delete-match" data-match-id="${m.id}">Löschen</button>
+          </div>`).join("")}
+
+        <div style="margin-top:14px;"><button class="small secondary" id="btn-import-season">📥 Saison-Vorlage importieren (10 Spiele, Runde 4–13)</button></div>
+        <div id="import-status" class="muted" style="margin-top:6px;"></div>
+
+        <h2 style="margin-top:22px;">Neues Spiel eintragen</h2>
         <div class="row">
-          <div><label>Gegner</label><input type="text" id="nm-opponent" placeholder="z. B. FC Münzkirchen" value="${hasManual ? escapeHtml(nm.match.opponent) : ""}"></div>
+          <div><label>Gegner</label><input type="text" id="nm-opponent" placeholder="z. B. FC Münzkirchen"></div>
           <div><label>Heim/Auswärts</label>
             <select id="nm-is-home">
-              <option value="1" ${hasManual && nm.match.isHome ? "selected" : ""}>Heimspiel</option>
-              <option value="0" ${hasManual && !nm.match.isHome ? "selected" : ""}>Auswärtsspiel</option>
+              <option value="1">Heimspiel</option>
+              <option value="0">Auswärtsspiel</option>
             </select>
           </div>
         </div>
         <div class="row">
-          <div><label>Datum</label><input type="date" id="nm-date" value="${hasManual ? nm.match.date : ""}"></div>
-          <div><label>Uhrzeit</label><input type="time" id="nm-time" value="${hasManual ? nm.match.time : ""}"></div>
+          <div><label>Datum</label><input type="date" id="nm-date"></div>
+          <div><label>Uhrzeit</label><input type="time" id="nm-time"></div>
+        </div>
+        <label>Gegner-Logo (Bild-URL, optional)</label>
+        <input type="text" id="nm-logo" placeholder="https://…">
+        <div class="row">
+          <div><label>Runde (optional)</label><input type="text" id="nm-round" placeholder="z. B. Runde 14"></div>
+          <div><label>Schiedsrichter (optional)</label><input type="text" id="nm-referee" placeholder="wird meist erst kurzfristig bekannt"></div>
         </div>
         <label>Ort (optional)</label>
-        <input type="text" id="nm-ort" placeholder="z. B. Sportplatz Utzenaich" value="${hasManual ? escapeHtml(nm.match.ort || "") : ""}">
+        <input type="text" id="nm-ort" placeholder="z. B. Sportplatz Utzenaich">
         <label>Hinweis (optional)</label>
-        <input type="text" id="nm-note" placeholder="z. B. Meisterschaftsspiel Runde 5" value="${hasManual ? escapeHtml(nm.match.note || "") : ""}">
+        <input type="text" id="nm-note" placeholder="z. B. Meisterschaftsspiel">
         <div id="nm-error" class="error"></div>
         <div class="row" style="margin-top:12px;">
-          <button id="btn-retry-next-match" class="secondary" style="flex:0 0 auto;">Jetzt erneut von fan.at versuchen</button>
+          <button id="btn-save-next-match" style="flex:0 0 auto;">Spiel hinzufügen</button>
         </div>
-        <div class="row" style="margin-top:12px;">
-          <button id="btn-save-next-match" style="flex:0 0 auto;">Manuell speichern</button>
-          ${hasManual ? `<button class="secondary" id="btn-clear-next-match" style="flex:0 0 auto;">Manuelle Eingabe löschen (zurück zu fan.at)</button>` : ""}
-        </div>
-        <p class="muted" style="margin-top:10px;font-size:12px;">Eine manuelle Eingabe hat immer Vorrang vor den fan.at-Daten. Löschen, um wieder automatisch zu laden.</p>
       </div>
 
       <div class="card">
@@ -722,9 +777,16 @@
       </div>
 
       <div class="card">
-        <h2>Spieler (${state.players.length})</h2>
-        <p class="muted">Passwort vergessen? Spieler hier löschen — er/sie kann sich danach mit derselben oder einer neuen E-Mail neu registrieren.</p>
-        ${state.players.map((p) => `
+        <div class="top-bar">
+          <h2 style="margin:0;">Spieler (${state.players.length})</h2>
+          <button class="small secondary" id="btn-toggle-players">${state.playersListOpen ? "Ausblenden" : "Anzeigen"}</button>
+        </div>
+        ${state.playersListOpen ? `
+          <p class="muted">Passwort vergessen? Spieler hier löschen — er/sie kann sich danach mit derselben oder einer neuen E-Mail neu registrieren.</p>
+          <input type="text" id="players-filter" placeholder="Spieler suchen …" value="${escapeHtml(state.playersFilter || "")}" style="margin-bottom:10px;">
+          ${state.players
+            .filter((p) => !state.playersFilter || p.name.toLowerCase().includes(state.playersFilter.toLowerCase()))
+            .map((p) => `
           <div class="list-item">
             <span>${escapeHtml(p.name)} <span class="muted">${escapeHtml(p.email)}</span> ${p.isAdmin ? '<span class="badge-admin">Trainer</span>' : ""}</span>
             <span class="row" style="max-width:320px;">
@@ -732,26 +794,97 @@
               ${p.id !== state.me.id ? `<button class="small secondary btn-delete-player" data-player-id="${p.id}" data-player-name="${escapeHtml(p.name)}">Löschen</button>` : ""}
             </span>
           </div>`).join("")}
+        ` : ""}
       </div>`;
   }
 
   function bindAdmin() {
     bindWeekNav(render);
 
-    const retryNmBtn = document.getElementById("btn-retry-next-match");
-    if (retryNmBtn) {
-      retryNmBtn.onclick = async () => {
-        retryNmBtn.disabled = true;
-        retryNmBtn.textContent = "Versuche es …";
+    const toggleBannerCb = document.getElementById("toggle-match-banner");
+    if (toggleBannerCb) {
+      toggleBannerCb.onchange = async () => {
+        const checked = toggleBannerCb.checked;
+        state.showMatchBanner = checked; // optimistisch sofort uebernehmen
         try {
-          const data = await api("/next-match?force=1");
-          state.nextMatch = data;
+          await api("/settings", { method: "POST", body: { showMatchBanner: checked } });
         } catch (e) {
-          state.nextMatch = { source: "not_available", match: null, error: e.message };
+          state.showMatchBanner = !checked; // bei Fehler zurueckdrehen
+          alert(e.message);
         }
         render();
       };
     }
+
+    const togglePlayersBtn = document.getElementById("btn-toggle-players");
+    if (togglePlayersBtn) {
+      togglePlayersBtn.onclick = () => {
+        state.playersListOpen = !state.playersListOpen;
+        render();
+      };
+    }
+
+    const playersFilterInput = document.getElementById("players-filter");
+    if (playersFilterInput) {
+      playersFilterInput.oninput = () => {
+        state.playersFilter = playersFilterInput.value;
+        render();
+        // Fokus geht beim Neu-Rendern verloren - direkt danach wiederherstellen
+        const el = document.getElementById("players-filter");
+        if (el) { el.focus(); el.selectionStart = el.selectionEnd = el.value.length; }
+      };
+    }
+
+    // Fertige Vorlage mit den zehn kommenden Spielen inkl. Vereinslogos, so wie am
+    // 01.09.2026 von fan.at abgerufen (spg-utzenaich-antiesenhofen.fan.at/spiele).
+    // "INSERT OR IGNORE" auf dem Server verhindert doppelte Eintraege bei mehrfachem Klick.
+    const SEASON_IMPORT = [
+      { round: "Runde 4", opponent: "Union Raiba Gilgenberg", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/5a57884e-5a67-4df4-a045-c6fdae84eafd_92x92.png", date: "2026-09-06", time: "16:00", isHome: false },
+      { round: "Runde 5", opponent: "Union Sanube Diersbach", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/ad138021-3906-4ff8-a52e-f50dfe9ce86d_92x92.png", date: "2026-09-12", time: "16:00", isHome: true },
+      { round: "Runde 6", opponent: "TSU Jeging", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/7cdc865f-cbbd-4b6a-9f90-ee4fdd474186_92x92.png", date: "2026-09-20", time: "16:00", isHome: false },
+      { round: "Runde 7", opponent: "SV Ritterbräu Neumarkt/Pötting", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/187801fd-02f2-4e1f-adf0-b424f413e0fc_92x92.png", date: "2026-09-26", time: "15:00", isHome: true },
+      { round: "Runde 8", opponent: "SV Hargassner Weng", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/a6e31660-6c1b-401c-a35a-1e5a01bca3eb_92x92.png", date: "2026-10-02", time: "19:30", isHome: false },
+      { round: "Runde 9", opponent: "Union Raiffeisen Gurten 1b", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/367c6b06-7fce-4e4f-bdd3-e14002a4cc12_92x92.png", date: "2026-10-10", time: "16:00", isHome: false },
+      { round: "Runde 10", opponent: "USV Erler Haus Neuhofen", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/35fbb393-0850-4436-99ce-a0ef59699548_92x92.png", date: "2026-10-17", time: "15:30", isHome: true },
+      { round: "Runde 11", opponent: "FC Munderfing", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/33977940-6dda-4b4e-8c60-6a4453534086_92x92.png", date: "2026-10-24", time: "14:30", isHome: false },
+      { round: "Runde 12", opponent: "Union CAB Rainbach im Innkreis", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/5209198a-e844-4dca-9639-98eb014419ae_92x92.png", date: "2026-10-31", time: "14:30", isHome: true },
+      { round: "Runde 13", opponent: "SPG Palting/Seeham", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/b41c0652-fa10-4d98-bdcf-1ec92d3b6543_92x92.png", date: "2026-11-08", time: "14:00", isHome: false },
+    ];
+
+    const importBtn = document.getElementById("btn-import-season");
+    if (importBtn) {
+      importBtn.onclick = async () => {
+        importBtn.disabled = true;
+        const status = document.getElementById("import-status");
+        let inserted = 0;
+        for (const match of SEASON_IMPORT) {
+          try {
+            const res = await api("/matches", { method: "POST", body: match });
+            if (res.inserted) inserted++;
+          } catch (e) {
+            // einzelnes Spiel fehlgeschlagen - einfach mit den restlichen weitermachen
+          }
+        }
+        status.textContent = `${inserted} von ${SEASON_IMPORT.length} Spielen neu hinzugefügt${inserted < SEASON_IMPORT.length ? " (Rest war schon vorhanden)" : ""}.`;
+        importBtn.disabled = false;
+        await loadMatches();
+        render();
+      };
+    }
+
+    document.querySelectorAll(".btn-delete-match").forEach((btn) => {
+      btn.onclick = async () => {
+        const matchId = btn.getAttribute("data-match-id");
+        if (!confirm("Dieses Spiel wirklich löschen?")) return;
+        try {
+          await api(`/matches/${matchId}`, { method: "DELETE" });
+          await loadMatches();
+          render();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    });
 
     const saveNmBtn = document.getElementById("btn-save-next-match");
     if (saveNmBtn) {
@@ -760,29 +893,19 @@
         const isHome = document.getElementById("nm-is-home").value === "1";
         const date = document.getElementById("nm-date").value;
         const time = document.getElementById("nm-time").value;
+        const opponentLogoUrl = document.getElementById("nm-logo").value.trim();
+        const round = document.getElementById("nm-round").value.trim();
+        const referee = document.getElementById("nm-referee").value.trim();
         const ort = document.getElementById("nm-ort").value.trim();
         const note = document.getElementById("nm-note").value.trim();
         const err = document.getElementById("nm-error");
         err.textContent = "";
         try {
-          await api("/next-match/manual", { method: "POST", body: { opponent, isHome, date, time, ort, note } });
-          await loadNextMatch();
+          await api("/matches", { method: "POST", body: { opponent, isHome, date, time, opponentLogoUrl, round, referee, ort, note } });
+          await loadMatches();
           render();
         } catch (e) {
           err.textContent = e.message;
-        }
-      };
-    }
-
-    const clearNmBtn = document.getElementById("btn-clear-next-match");
-    if (clearNmBtn) {
-      clearNmBtn.onclick = async () => {
-        try {
-          await api("/next-match/manual", { method: "DELETE" });
-          await loadNextMatch();
-          render();
-        } catch (e) {
-          alert(e.message);
         }
       };
     }
@@ -896,7 +1019,7 @@
       await loadMe();
       if (state.me) {
         await loadTrainings();
-        loadNextMatch().then(render); // im Hintergrund, blockiert den Rest nicht
+        Promise.all([loadMatches(), loadSettings()]).then(render); // im Hintergrund, blockiert den Rest nicht
       }
     } catch (e) {
       // ignore

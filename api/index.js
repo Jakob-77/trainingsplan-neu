@@ -2,7 +2,6 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
 const auth = require("../auth");
-const { fetchNextMatchFromFanAt, FAN_AT_URL } = require("../next-match");
 
 const app = express();
 app.use(express.json());
@@ -96,6 +95,24 @@ app.get("/api/me", async (req, res) => {
   const player = await db.get("SELECT * FROM players WHERE id = ?", [playerId]);
   if (!player) return res.json({ player: null });
   res.json({ player: publicPlayer(player) });
+});
+
+// ---------- Einstellungen (z. B. Spielvorschau ein-/ausblendbar) ----------
+
+app.get("/api/settings", requireLogin, async (req, res) => {
+  const row = await db.get("SELECT value FROM settings WHERE key = 'show_match_banner'", []);
+  const showMatchBanner = row ? row.value === "1" : true; // Standard: an
+  res.json({ showMatchBanner });
+});
+
+app.post("/api/settings", requireLogin, requireAdmin, async (req, res) => {
+  const { showMatchBanner } = req.body || {};
+  await db.run(
+    `INSERT INTO settings (key, value) VALUES ('show_match_banner', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [showMatchBanner ? "1" : "0"]
+  );
+  res.json({ ok: true });
 });
 
 // ---------- Spieler (nur fuer Trainer/Verwaltung sichtbar) ----------
@@ -270,81 +287,64 @@ app.get("/api/stats", requireLogin, async (req, res) => {
   res.json({ trainingCount, rows });
 });
 
-// ---------- Nächstes Spiel (von fan.at, mit Cache und manuellem Fallback) ----------
+// ---------- Spielplan (von Trainern gepflegt, inkl. Logos & Schiedsrichter) ----------
 //
-// Reihenfolge, in der die Daten ermittelt werden:
-// 1. Manuelle Eingabe eines Trainers, falls vorhanden -> hat immer Vorrang (volle Kontrolle
-//    fuer den Fall, dass der automatische Abruf mal nicht stimmt oder nicht klappt).
-// 2. Frisch von fan.at abgerufene Daten (mit Zwischenspeicher, damit nicht bei jedem
-//    Seitenaufruf neu abgerufen werden muss).
-// 3. Falls der Abruf fehlschlaegt: der zuletzt bekannte Zwischenspeicher-Stand, auch wenn
-//    er nicht mehr ganz frisch ist - besser als gar nichts anzuzeigen.
-// 4. Wenn nichts davon verfuegbar ist: "not_available" - die App selbst funktioniert davon
-//    komplett unbeeintraechtigt weiter, das ist nur ein Zusatz-Feature.
+// Ein automatischer Abruf von fan.at wurde ausprobiert, ist aber technisch nicht zuverlaessig
+// moeglich: die Seite laedt ihre Inhalte erst per JavaScript im Browser nach, das kann ein
+// normaler Server-Abruf grundsaetzlich nicht sehen (keine Struktur-Aenderung, sondern eine
+// technische Grenze). Deshalb bewusst einfach gehalten: Trainer tragen die Spiele von Hand ein
+// (auch als Sammel-Import moeglich, siehe Frontend "Saison-Vorlage importieren").
 
-const NEXT_MATCH_CACHE_TTL_MS = 3 * 60 * 60 * 1000; // 3 Stunden
+function publicMatch(row) {
+  return {
+    id: row.id,
+    opponent: row.opponent,
+    opponentLogoUrl: row.opponent_logo_url,
+    date: row.date,
+    time: row.time,
+    isHome: !!row.is_home,
+    ort: row.ort,
+    referee: row.referee,
+    round: row.round,
+    note: row.note,
+  };
+}
 
-app.get("/api/next-match", requireLogin, async (req, res) => {
-  const manual = await db.get("SELECT * FROM next_match_manual WHERE id = 1", []);
-  if (manual) {
-    return res.json({
-      source: "manual",
-      match: {
-        opponent: manual.opponent,
-        date: manual.date,
-        time: manual.time,
-        isHome: !!manual.is_home,
-        ort: manual.ort,
-        note: manual.note,
-      },
-    });
-  }
-
-  const force = req.query.force === "1";
-  const cached = await db.get("SELECT * FROM next_match_cache WHERE id = 1", []);
-  const cachedData = cached ? JSON.parse(cached.data) : null;
-  const cacheAge = cached ? Date.now() - new Date(cached.fetched_at).getTime() : Infinity;
-
-  if (!force && cachedData && cacheAge < NEXT_MATCH_CACHE_TTL_MS) {
-    return res.json({ source: "fan.at", match: cachedData, cached: true });
-  }
-
-  try {
-    const fresh = await fetchNextMatchFromFanAt();
-    await db.run(
-      `INSERT INTO next_match_cache (id, data, fetched_at) VALUES (1, ?, datetime('now'))
-       ON CONFLICT(id) DO UPDATE SET data = excluded.data, fetched_at = excluded.fetched_at`,
-      [JSON.stringify(fresh)]
-    );
-    return res.json({ source: "fan.at", match: fresh, cached: false });
-  } catch (e) {
-    console.error("fan.at Abruf fehlgeschlagen:", e.message);
-    if (cachedData) {
-      // Lieber leicht veraltete Daten zeigen als gar keine
-      return res.json({ source: "fan.at", match: cachedData, cached: true, stale: true });
-    }
-    return res.json({ source: "not_available", match: null, error: e.message });
-  }
+app.get("/api/matches", requireLogin, async (req, res) => {
+  const rows = await db.all("SELECT * FROM matches ORDER BY date, time", []);
+  res.json({ matches: rows.map(publicMatch) });
 });
 
-app.post("/api/next-match/manual", requireLogin, requireAdmin, async (req, res) => {
-  const { opponent, date, time, isHome, ort, note } = req.body || {};
+app.post("/api/matches", requireLogin, requireAdmin, async (req, res) => {
+  const { opponent, opponentLogoUrl, date, time, isHome, ort, referee, round, note } = req.body || {};
   if (!opponent || !opponent.trim() || !date || !time) {
     return res.status(400).json({ error: "Bitte Gegner, Datum und Uhrzeit angeben." });
   }
-  await db.run(
-    `INSERT INTO next_match_manual (id, opponent, date, time, is_home, ort, note, updated_at)
-     VALUES (1, ?, ?, ?, ?, ?, ?, datetime('now'))
-     ON CONFLICT(id) DO UPDATE SET opponent = excluded.opponent, date = excluded.date,
-       time = excluded.time, is_home = excluded.is_home, ort = excluded.ort,
-       note = excluded.note, updated_at = datetime('now')`,
-    [opponent.trim(), date, time, isHome ? 1 : 0, (ort || "").trim() || null, (note || "").trim() || null]
-  );
-  res.json({ ok: true });
+  try {
+    const result = await db.run(
+      `INSERT OR IGNORE INTO matches
+         (opponent, opponent_logo_url, date, time, is_home, ort, referee, round, note)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        opponent.trim(),
+        (opponentLogoUrl || "").trim() || null,
+        date,
+        time,
+        isHome ? 1 : 0,
+        (ort || "").trim() || null,
+        (referee || "").trim() || null,
+        (round || "").trim() || null,
+        (note || "").trim() || null,
+      ]
+    );
+    res.json({ ok: true, inserted: result.rowsAffected > 0 });
+  } catch (e) {
+    res.status(400).json({ error: "Konnte Spiel nicht speichern." });
+  }
 });
 
-app.delete("/api/next-match/manual", requireLogin, requireAdmin, async (req, res) => {
-  await db.run("DELETE FROM next_match_manual WHERE id = 1", []);
+app.delete("/api/matches/:id", requireLogin, requireAdmin, async (req, res) => {
+  await db.run("DELETE FROM matches WHERE id = ?", [Number(req.params.id)]);
   res.json({ ok: true });
 });
 
