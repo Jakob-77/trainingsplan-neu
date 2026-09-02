@@ -103,6 +103,28 @@ dev-server.js                         Nur für lokale Tests, auf Vercel nicht ve
 vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe zur Funktion finden
 ```
 
+## Saisonen (Statistik-Reset & Übersichtlichkeit über Jahre hinweg)
+
+Damit die App auch nach Jahren mit vielen Trainings/Spielen übersichtlich bleibt und die
+Statistik nicht ewig weiterzählt, gibt es ein Saison-Konzept:
+
+- Trainer legen in der Verwaltung Saisonen an (Name + Zeitraum, z. B. "Herbstsaison 2026",
+  01.08.–15.12.2026). Beim Anlegen wird automatisch ein plausibler Name/Zeitraum vorgeschlagen
+  (Jän–Jun → Frühjahrssaison, Jul–Dez → Herbstsaison), lässt sich aber frei anpassen.
+- Trainings und Spiele werden **automatisch anhand ihres Datums** der passenden Saison
+  zugerechnet — es gibt kein extra Feld dafür, das befüllt werden müsste, und es musste keine
+  bestehende Datenbank migriert werden.
+- Die **Statistik zeigt standardmäßig nur die aktuell laufende Saison** (per Dropdown auch
+  gezielt eine andere Saison oder "alle Saisonen gesamt" wählbar). Mit jeder neuen Saison
+  "startet" die Quote dadurch von selbst wieder bei null.
+- Der **Spielplan in der Verwaltung zeigt standardmäßig nur bevorstehende Spiele** (vergangene
+  lassen sich über einen Button bei Bedarf einblenden) — wächst dadurch nicht endlos.
+- Die **Trainings-Verwaltung ist ohnehin schon wochenweise navigierbar** (siehe weiter oben) und
+  springt bei jedem Öffnen automatisch zur Woche des nächsten Trainings — alte Wochen bleiben
+  über "◀ Vorherige Woche" erreichbar, drängen sich aber nie in die Standardansicht.
+- Eine Saison löschen entfernt nur die Saison-Definition selbst, keine Trainings/Spiele — die
+  bleiben in der Datenbank erhalten, zählen danach nur zu keiner Saison mehr.
+
 ## Spielplan
 
 Ein automatischer Abruf von der öffentlichen Spielplan-Seite fan.at wurde ausprobiert. Anders als
@@ -170,7 +192,8 @@ und dafür nicht durch Bot-Schutz blockiert.
 - Trainer tragen direkt bei einem Training Gastspieler ein (reine Zusage, kein Login) und können
   sie dort auch wieder entfernen.
 - Statistik-Ansicht zeigt pro (registriertem) Spieler die Anzahl Zusagen/Vielleicht/Absagen/Offen
-  sowie die Zusage-Quote in Prozent über alle Trainings.
+  sowie die Zusage-Quote in Prozent — standardmäßig nur für die aktuelle Saison, per Dropdown
+  auch für andere Saisonen oder alle zusammen wählbar (siehe eigener Abschnitt "Saisonen" oben).
 - Trainer können weitere Spieler zu Trainern machen/die Rolle entziehen, und **Spieler auch
   komplett löschen** — z. B. bei einem vergessenen Passwort (der Spieler kann sich danach mit
   derselben oder einer neuen E-Mail neu registrieren) oder wenn jemand den Verein verlässt. Ein

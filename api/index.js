@@ -115,6 +115,51 @@ app.post("/api/settings", requireLogin, requireAdmin, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---------- Saisonen ----------
+//
+// Trainings/Spiele werden ueber ihr Datum einer Saison zugerechnet (kein festes Feld auf der
+// Trainings-/Spiele-Tabelle) - dadurch funktioniert das auch rueckwirkend fuer laengst
+// bestehende Eintraege, ohne Migration.
+
+function findCurrentSeason(seasons, todayStr) {
+  return seasons.find((s) => s.start_date <= todayStr && todayStr <= s.end_date) || null;
+}
+
+app.get("/api/seasons", requireLogin, async (req, res) => {
+  const seasons = await db.all("SELECT * FROM seasons ORDER BY start_date DESC", []);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const current = findCurrentSeason(seasons, todayStr);
+  res.json({
+    seasons: seasons.map((s) => ({ id: s.id, name: s.name, startDate: s.start_date, endDate: s.end_date })),
+    currentSeasonId: current ? current.id : null,
+  });
+});
+
+app.post("/api/seasons", requireLogin, requireAdmin, async (req, res) => {
+  const { name, startDate, endDate } = req.body || {};
+  if (!name || !name.trim() || !startDate || !endDate) {
+    return res.status(400).json({ error: "Bitte Name, Start- und Enddatum angeben." });
+  }
+  if (endDate < startDate) {
+    return res.status(400).json({ error: "Das Enddatum darf nicht vor dem Startdatum liegen." });
+  }
+  const existing = await db.all("SELECT * FROM seasons", []);
+  const overlap = existing.find((s) => startDate <= s.end_date && endDate >= s.start_date);
+  if (overlap) {
+    return res.status(400).json({ error: `Der Zeitraum überschneidet sich mit "${overlap.name}".` });
+  }
+  const result = await db.run(
+    "INSERT INTO seasons (name, start_date, end_date) VALUES (?, ?, ?)",
+    [name.trim(), startDate, endDate]
+  );
+  res.json({ id: Number(result.lastInsertRowid) });
+});
+
+app.delete("/api/seasons/:id", requireLogin, requireAdmin, async (req, res) => {
+  await db.run("DELETE FROM seasons WHERE id = ?", [Number(req.params.id)]);
+  res.json({ ok: true });
+});
+
 // ---------- Spieler (nur fuer Trainer/Verwaltung sichtbar) ----------
 
 app.get("/api/players", requireLogin, requireAdmin, async (req, res) => {
@@ -303,9 +348,31 @@ app.delete("/api/trainings/:id/guests/:guestId", requireLogin, requireAdmin, asy
 
 app.get("/api/stats", requireLogin, async (req, res) => {
   const players = await db.all("SELECT * FROM players ORDER BY name COLLATE NOCASE", []);
-  const trainings = await db.all("SELECT * FROM trainings", []);
-  const trainingCount = trainings.length;
+  let trainings = await db.all("SELECT * FROM trainings", []);
   const responses = await db.all("SELECT * FROM responses", []);
+
+  // Saison-Eingrenzung: per ?seasonId=<id> eine bestimmte Saison anzeigen, per ?all=1
+  // ausdruecklich alle Trainings ueber alle Saisonen hinweg. Ohne Angabe: automatisch die
+  // Saison, in der "heute" liegt - falls keine definiert ist (z. B. Verein hat noch keine
+  // Saisonen angelegt, oder gerade Sommerpause zwischen zwei Saisonen), faellt es auf
+  // "alle Trainings" zurueck, damit die Statistik nie einfach leer/verwirrend wird.
+  let activeSeason = null;
+  if (req.query.all !== "1") {
+    const seasons = await db.all("SELECT * FROM seasons", []);
+    if (req.query.seasonId) {
+      activeSeason = seasons.find((s) => s.id === Number(req.query.seasonId)) || null;
+    } else {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      activeSeason = findCurrentSeason(seasons, todayStr);
+    }
+    if (activeSeason) {
+      trainings = trainings.filter((t) => t.date >= activeSeason.start_date && t.date <= activeSeason.end_date);
+    }
+  }
+
+  const trainingIds = new Set(trainings.map((t) => t.id));
+  const trainingCount = trainings.length;
+  const scopedResponses = responses.filter((r) => trainingIds.has(r.training_id));
 
   // Die Quote soll nur auf Basis der bereits stattgefundenen (oder laufenden) Trainings
   // berechnet werden, nicht auf Basis aller inkl. zukuenftiger - sonst wuerde ein noch
@@ -319,7 +386,7 @@ app.get("/api/stats", requireLogin, async (req, res) => {
   const pastTrainingCount = pastTrainingIds.size;
 
   const rows = players.map((p) => {
-    const mine = responses.filter((r) => r.player_id === p.id);
+    const mine = scopedResponses.filter((r) => r.player_id === p.id);
     const zusagen = mine.filter((r) => r.status === "zusage").length;
     const vielleicht = mine.filter((r) => r.status === "vielleicht").length;
     const absagen = mine.filter((r) => r.status === "absage").length;
@@ -330,7 +397,12 @@ app.get("/api/stats", requireLogin, async (req, res) => {
   });
   rows.sort((a, b) => b.zusagen - a.zusagen);
 
-  res.json({ trainingCount, pastTrainingCount, rows });
+  res.json({
+    trainingCount,
+    pastTrainingCount,
+    rows,
+    seasonName: activeSeason ? activeSeason.name : null,
+  });
 });
 
 // ---------- Spielplan (von Trainern gepflegt, inkl. Logos & Schiedsrichter) ----------

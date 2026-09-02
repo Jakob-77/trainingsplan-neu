@@ -20,6 +20,10 @@
     playersFilter: "",
     editingTrainingId: null, // welches Training gerade in der Verwaltung bearbeitet wird
     editingMatchId: null, // welches Spiel gerade in der Verwaltung bearbeitet wird
+    seasons: [],
+    currentSeasonId: null, // von Server ermittelt: welche Saison "heute" gerade laeuft
+    statsSeasonId: "current", // "current" | "all" | <id> - was in der Statistik ausgewaehlt ist
+    showPastMatches: false, // Spielplan in der Verwaltung: vergangene Spiele standardmaessig ausgeblendet
   };
 
   function escapeHtml(str) {
@@ -194,8 +198,22 @@
   }
 
   async function loadStats() {
-    const data = await api("/stats");
+    let query = "";
+    if (state.statsSeasonId === "all") query = "?all=1";
+    else if (state.statsSeasonId !== "current") query = `?seasonId=${state.statsSeasonId}`;
+    const data = await api(`/stats${query}`);
     state.stats = data;
+  }
+
+  async function loadSeasons() {
+    try {
+      const data = await api("/seasons");
+      state.seasons = data.seasons;
+      state.currentSeasonId = data.currentSeasonId;
+    } catch (e) {
+      state.seasons = [];
+      state.currentSeasonId = null;
+    }
   }
 
   // Rein informatives Zusatz-Feature (manuell gepflegter Spielplan) - wenn das fehlschlaegt,
@@ -207,6 +225,25 @@
     } catch (e) {
       state.matches = [];
     }
+  }
+
+  // Schlaegt beim Anlegen einer neuen Saison einen plausiblen Namen/Zeitraum vor (Frühjahr
+  // Jan-Jun, Herbst Jul-Dez) - nur ein Vorschlag zum Vorausfuellen, der Trainer kann alles
+  // frei anpassen, das hier ist bewusst keine feste Regel.
+  function suggestSeasonName() {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    return month <= 6 ? `Frühjahrssaison ${year}` : `Herbstsaison ${year}`;
+  }
+
+  function suggestSeasonRange() {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+    return month <= 6
+      ? { start: `${year}-03-01`, end: `${year}-06-30` }
+      : { start: `${year}-08-01`, end: `${year}-12-15` };
   }
 
   function getNextMatch() {
@@ -353,6 +390,7 @@
     document.getElementById("nav-home").onclick = () => { state.view = "home"; render(); };
     document.getElementById("nav-stats").onclick = async () => {
       state.view = "stats"; state.loading = true; render();
+      if (state.seasons.length === 0) await loadSeasons();
       await loadStats(); state.loading = false; render();
     };
     const navAdmin = document.getElementById("nav-admin");
@@ -360,11 +398,13 @@
       state.view = "admin"; state.loading = true; render();
       await loadPlayers();
       if (state.matches.length === 0) await loadMatches();
+      if (state.seasons.length === 0) await loadSeasons();
       state.loading = false; render();
     };
 
     if (state.view === "admin") bindAdmin();
     else if (state.view === "home") bindTrainings();
+    else if (state.view === "stats") bindStats();
   }
 
   // ---------- Wochen-Navigation (gemeinsam fuer Trainings- und Verwaltungs-Ansicht) ----------
@@ -657,13 +697,28 @@
   // ---------- Statistik ----------
 
   function renderStats() {
-    if (!state.stats) return `<div class="card"><p class="muted"><span class="spinner"></span> Lade …</p></div>`;
+    const seasonOptions = `
+      <option value="current" ${state.statsSeasonId === "current" ? "selected" : ""}>Aktuelle Saison</option>
+      ${state.seasons.map((s) => `<option value="${s.id}" ${String(state.statsSeasonId) === String(s.id) ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("")}
+      <option value="all" ${state.statsSeasonId === "all" ? "selected" : ""}>Alle Saisonen (gesamt)</option>
+    `;
+    const seasonPicker = `
+      <div class="card" style="margin-bottom:12px;">
+        <label>Saison</label>
+        <select id="stats-season-select">${seasonOptions}</select>
+      </div>`;
+
+    if (!state.stats) return seasonPicker + `<div class="card"><p class="muted"><span class="spinner"></span> Lade …</p></div>`;
     if (state.stats.rows.length === 0) {
-      return `<div class="card"><p class="empty">Noch keine Spieler registriert.</p></div>`;
+      return seasonPicker + `<div class="card"><p class="empty">Noch keine Spieler registriert.</p></div>`;
     }
-    return `
+    const seasonLabel = state.statsSeasonId === "current"
+      ? (state.stats.seasonName ? `Saison "${escapeHtml(state.stats.seasonName)}"` : "keine aktive Saison hinterlegt, zeigt alle Trainings")
+      : state.statsSeasonId === "all" ? "alle Saisonen" : `Saison "${escapeHtml(state.stats.seasonName || "")}"`;
+    return seasonPicker + `
       <div class="card">
-        <h2>Trainingsbeteiligung (${state.stats.trainingCount} Trainings gesamt, davon ${state.stats.pastTrainingCount} bereits stattgefunden)</h2>
+        <h2>Trainingsbeteiligung — ${seasonLabel}</h2>
+        <p class="muted" style="margin-top:-8px;">${state.stats.trainingCount} Trainings gesamt, davon ${state.stats.pastTrainingCount} bereits stattgefunden.</p>
         <table>
           <thead><tr><th>Spieler</th><th>Zusagen</th><th>Quote*</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
           <tbody>
@@ -677,16 +732,62 @@
             </tr>`).join("")}
           </tbody>
         </table>
-        <p class="muted" style="margin-top:8px;font-size:11.5px;">*Quote = Zusagen bezogen auf die bisher bereits stattgefundenen Trainings (zukünftige, noch offene Trainings zählen nicht mit).</p>
+        <p class="muted" style="margin-top:8px;font-size:11.5px;">*Quote = Zusagen bezogen auf die bisher bereits stattgefundenen Trainings dieser Saison (zukünftige, noch offene Trainings zählen nicht mit).</p>
       </div>`;
+  }
+
+  function bindStats() {
+    const select = document.getElementById("stats-season-select");
+    if (select) {
+      select.onchange = async () => {
+        state.statsSeasonId = select.value;
+        state.stats = null;
+        render();
+        await loadStats();
+        render();
+      };
+    }
   }
 
   // ---------- Verwaltung (ausschließlich für Trainer sichtbar) ----------
 
   function renderAdmin() {
     const visible = trainingsInCurrentWeek();
-    const sortedMatches = [...state.matches].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    const now = Date.now();
+    const allMatchesSorted = [...state.matches].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    const upcomingMatches = allMatchesSorted.filter((m) => new Date(`${m.date}T${m.time}:00`).getTime() >= now);
+    const pastMatches = allMatchesSorted.filter((m) => new Date(`${m.date}T${m.time}:00`).getTime() < now);
+    const matchesToShow = state.showPastMatches ? allMatchesSorted : upcomingMatches;
+
+    const currentSeason = state.seasons.find((s) => s.id === state.currentSeasonId);
+    const otherSeasons = state.seasons.filter((s) => s.id !== state.currentSeasonId);
+
     return `
+      <div class="card">
+        <h2>Saison</h2>
+        <p class="muted">Trainings/Spiele werden automatisch anhand ihres Datums der passenden Saison zugerechnet. Die Statistik startet dadurch mit jeder neuen Saison von selbst wieder bei null.</p>
+        ${currentSeason
+          ? `<p>Aktuell läuft: <b>${escapeHtml(currentSeason.name)}</b> (${fmtDate(currentSeason.startDate)} – ${fmtDate(currentSeason.endDate)})</p>`
+          : `<p class="muted">Gerade ist keine Saison als "aktuell" hinterlegt (z. B. zwischen zwei Saisonen). Statistik zeigt in dem Fall automatisch alle Trainings.</p>`}
+        ${otherSeasons.length > 0 ? `
+          <details style="margin:8px 0;">
+            <summary class="muted" style="cursor:pointer;">${otherSeasons.length} weitere Saison${otherSeasons.length === 1 ? "" : "en"} anzeigen</summary>
+            ${otherSeasons.map((s) => `
+              <div class="list-item">
+                <span>${escapeHtml(s.name)} <span class="muted">(${fmtDate(s.startDate)} – ${fmtDate(s.endDate)})</span></span>
+                <button class="small secondary btn-delete-season" data-season-id="${s.id}">Löschen</button>
+              </div>`).join("")}
+          </details>` : ""}
+        <label style="margin-top:10px;">Neue Saison anlegen</label>
+        <input type="text" id="season-name" placeholder="z. B. Herbstsaison 2026" value="${escapeHtml(suggestSeasonName())}">
+        <div class="row">
+          <div><label>Von</label><input type="date" id="season-start" value="${suggestSeasonRange().start}"></div>
+          <div><label>Bis</label><input type="date" id="season-end" value="${suggestSeasonRange().end}"></div>
+        </div>
+        <div id="season-error" class="error"></div>
+        <div style="margin-top:10px;"><button class="small" id="btn-add-season">Saison anlegen</button></div>
+      </div>
+
       <div class="card">
         <h2>Spielplan</h2>
         <p class="muted">Das zeitlich nächste Spiel wird automatisch oben im Trainingsplan als Banner angezeigt.</p>
@@ -695,7 +796,7 @@
           Spielvorschau im Trainingsplan anzeigen
         </label>
 
-        ${sortedMatches.length === 0 ? '<p class="empty">Noch keine Spiele eingetragen.</p>' : sortedMatches.map((m) => {
+        ${matchesToShow.length === 0 ? `<p class="empty">${state.showPastMatches ? "Noch keine Spiele eingetragen." : "Keine bevorstehenden Spiele eingetragen."}</p>` : matchesToShow.map((m) => {
           const isEditingMatch = state.editingMatchId === m.id;
           if (isEditingMatch) {
             return `
@@ -742,6 +843,10 @@
             </span>
           </div>`;
         }).join("")}
+        ${pastMatches.length > 0 ? `
+        <div style="margin-top:10px;">
+          <button class="small secondary" id="btn-toggle-past-matches">${state.showPastMatches ? "Vergangene Spiele ausblenden" : `${pastMatches.length} vergangene Spiele anzeigen`}</button>
+        </div>` : ""}
 
         <div style="margin-top:14px;"><button class="small secondary" id="btn-import-season">📥 Saison-Vorlage importieren (10 Spiele, Runde 4–13)</button></div>
         <div id="import-status" class="muted" style="margin-top:6px;"></div>
@@ -891,6 +996,46 @@
 
   function bindAdmin() {
     bindWeekNav(render);
+
+    const addSeasonBtn = document.getElementById("btn-add-season");
+    if (addSeasonBtn) {
+      addSeasonBtn.onclick = async () => {
+        const name = document.getElementById("season-name").value.trim();
+        const startDate = document.getElementById("season-start").value;
+        const endDate = document.getElementById("season-end").value;
+        const err = document.getElementById("season-error");
+        err.textContent = "";
+        try {
+          await api("/seasons", { method: "POST", body: { name, startDate, endDate } });
+          await loadSeasons();
+          await loadStats(); // Statistik-Standardauswahl "Aktuelle Saison" kann sich jetzt aendern
+          render();
+        } catch (e) {
+          err.textContent = e.message;
+        }
+      };
+    }
+
+    document.querySelectorAll(".btn-delete-season").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!confirm("Diese Saison wirklich löschen? Die Trainings/Spiele selbst bleiben erhalten, zählen danach aber zu keiner Saison mehr.")) return;
+        try {
+          await api(`/seasons/${btn.getAttribute("data-season-id")}`, { method: "DELETE" });
+          await loadSeasons();
+          render();
+        } catch (e) {
+          alert(e.message);
+        }
+      };
+    });
+
+    const togglePastMatchesBtn = document.getElementById("btn-toggle-past-matches");
+    if (togglePastMatchesBtn) {
+      togglePastMatchesBtn.onclick = () => {
+        state.showPastMatches = !state.showPastMatches;
+        render();
+      };
+    }
 
     const toggleBannerCb = document.getElementById("toggle-match-banner");
     if (toggleBannerCb) {

@@ -109,6 +109,20 @@ function initSchema() {
           value TEXT NOT NULL
         )
       `);
+      // Saisonen (z. B. "Herbstsaison 2026", "Fruehjahrssaison 2027") - dienen dazu, die
+      // Statistik automatisch pro Saison neu zu starten und die Verwaltung standardmaessig
+      // nicht mit Jahren an Alt-Daten zuzumuellen. Trainings/Spiele werden NICHT fest einer
+      // Saison zugeordnet (kein season_id-Feld), sondern ueber ihr Datum einer Saison
+      // zugerechnet - dadurch war keine Datenmigration fuer bereits bestehende Eintraege noetig.
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS seasons (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          start_date TEXT NOT NULL,
+          end_date TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
       // Migration fuer Datenbanken aus der Vor-Vercel-Version (falls per --from-file importiert):
       // is_guest wird nicht mehr gebraucht, macht aber nichts, wenn die Spalte noch existiert.
       await ensureColumn("players", "is_admin", "INTEGER NOT NULL DEFAULT 0");
