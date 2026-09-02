@@ -137,7 +137,11 @@ und dafür nicht durch Bot-Schutz blockiert.
 - Registrierung mit Name, E-Mail und Passwort. Der erste Account wird automatisch Trainer.
 - Login bleibt 180 Tage bestehen und verlängert sich bei jedem Besuch automatisch.
 - Trainer legen Trainings an (Datum, Uhrzeit — Standard 19:00 Uhr —, Ort, optionaler Hinweis)
-  und löschen sie bei Bedarf.
+  und löschen sie bei Bedarf. **Serientermine**: Wochentage auswählen (Standard: Montag, Dienstag,
+  Donnerstag), Uhrzeit/Ort/Hinweis sowie Start- und Enddatum angeben — legt für den ganzen
+  Zeitraum automatisch alle passenden Trainings an (z. B. eine ganze Saison auf einen Schlag,
+  maximal 150 auf einmal). Bereits vorhandene Termine am selben Datum/Uhrzeit werden dabei
+  übersprungen statt doppelt angelegt.
 - Spieler wählen pro Training Zusage, Vielleicht oder Absage — bei Vielleicht/Absage ist ein
   Grund Pflicht, das Eingabefeld schließt sich danach automatisch wieder. Bei Zusage kann
   optional eine kurze Notiz hinterlegt werden (z. B. "komme 10 Minuten später") — jederzeit

@@ -90,6 +90,9 @@ tr:last-child td{border-bottom:none;}
 .install-hint button{white-space:nowrap;}
 .switch-row{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:10px 0;cursor:pointer;}
 .switch-row input[type=checkbox]{width:auto;}
+.weekday-checks{display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 4px;}
+.weekday-checks label{display:flex;align-items:center;gap:4px;font-size:13.5px;cursor:pointer;background:#f4f6f4;border:1px solid var(--line);border-radius:6px;padding:5px 10px;}
+.weekday-checks input[type=checkbox]{width:auto;}
 .week-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin:4px 0 16px;flex-wrap:wrap;}
 .week-nav .week-label{font-weight:700;font-size:14px;min-width:150px;text-align:center;}
 .next-training-banner{background:var(--grass-dark);color:#fff;border-radius:var(--radius);padding:14px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}

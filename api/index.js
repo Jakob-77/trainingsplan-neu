@@ -177,11 +177,17 @@ app.post("/api/trainings", requireLogin, requireAdmin, async (req, res) => {
   if (!date || !time || !ort || !ort.trim()) {
     return res.status(400).json({ error: "Bitte Datum, Uhrzeit und Ort angeben." });
   }
+  // Verhindert doppelte Trainings am selben Datum/Uhrzeit - wichtig, damit beim Anlegen
+  // von Serienterminen (oder versehentlichem Doppelklick) nichts doppelt entsteht.
+  const existing = await db.get("SELECT id FROM trainings WHERE date = ? AND time = ?", [date, time]);
+  if (existing) {
+    return res.json({ id: existing.id, inserted: false });
+  }
   const result = await db.run(
     "INSERT INTO trainings (date, time, ort, note) VALUES (?, ?, ?, ?)",
     [date, time, ort.trim(), (note || "").trim() || null]
   );
-  res.json({ id: Number(result.lastInsertRowid) });
+  res.json({ id: Number(result.lastInsertRowid), inserted: true });
 });
 
 app.delete("/api/trainings/:id", requireLogin, requireAdmin, async (req, res) => {

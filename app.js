@@ -749,6 +749,34 @@
       </div>
 
       <div class="card">
+        <h2>Serientermine anlegen</h2>
+        <p class="muted">Legt für jeden ausgewählten Wochentag im gewählten Zeitraum automatisch ein Training an — praktisch für eine ganze Saison auf einmal.</p>
+        <label>Wochentage</label>
+        <div class="weekday-checks">
+          <label><input type="checkbox" id="series-mo" checked> Mo</label>
+          <label><input type="checkbox" id="series-di" checked> Di</label>
+          <label><input type="checkbox" id="series-mi"> Mi</label>
+          <label><input type="checkbox" id="series-do" checked> Do</label>
+          <label><input type="checkbox" id="series-fr"> Fr</label>
+          <label><input type="checkbox" id="series-sa"> Sa</label>
+          <label><input type="checkbox" id="series-so"> So</label>
+        </div>
+        <div class="row">
+          <div><label>Uhrzeit</label><input type="time" id="series-time" value="19:00"></div>
+          <div><label>Ort</label><input type="text" id="series-ort" placeholder="z. B. Sportplatz Hauptplatz 1"></div>
+        </div>
+        <label>Hinweis (optional)</label>
+        <input type="text" id="series-note" placeholder="z. B. Sommer-Trainingsblock">
+        <div class="row">
+          <div><label>Von</label><input type="date" id="series-start"></div>
+          <div><label>Bis</label><input type="date" id="series-end"></div>
+        </div>
+        <div id="series-error" class="error"></div>
+        <div id="series-status" class="info"></div>
+        <div style="margin-top:12px;"><button id="btn-create-series">Serientermine erstellen</button></div>
+      </div>
+
+      <div class="card">
         <h2>Trainings verwalten &amp; Gastspieler eintragen</h2>
         ${renderWeekNav()}
         ${state.trainings.length === 0 ? '<p class="empty">Noch keine Trainings.</p>' : visible.length === 0 ? '<p class="empty">Keine Trainings in dieser Woche.</p>' : visible.map((t) => {
@@ -909,6 +937,58 @@
         }
       };
     }
+
+    document.getElementById("btn-create-series").onclick = async () => {
+      const weekdayIds = [
+        ["series-so", 0], ["series-mo", 1], ["series-di", 2], ["series-mi", 3],
+        ["series-do", 4], ["series-fr", 5], ["series-sa", 6],
+      ];
+      const selectedDays = weekdayIds
+        .filter(([id]) => document.getElementById(id).checked)
+        .map(([, dayNum]) => dayNum);
+
+      const time = document.getElementById("series-time").value;
+      const ort = document.getElementById("series-ort").value.trim();
+      const note = document.getElementById("series-note").value.trim();
+      const startVal = document.getElementById("series-start").value;
+      const endVal = document.getElementById("series-end").value;
+      const err = document.getElementById("series-error");
+      const status = document.getElementById("series-status");
+      err.textContent = "";
+      status.textContent = "";
+
+      if (selectedDays.length === 0) { err.textContent = "Bitte mindestens einen Wochentag auswählen."; return; }
+      if (!time || !ort || !startVal || !endVal) { err.textContent = "Bitte Uhrzeit, Ort sowie Start- und Enddatum angeben."; return; }
+      const start = new Date(`${startVal}T00:00:00`);
+      const end = new Date(`${endVal}T00:00:00`);
+      if (end < start) { err.textContent = "Das Enddatum darf nicht vor dem Startdatum liegen."; return; }
+
+      const dates = [];
+      for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
+        if (selectedDays.includes(d.getDay())) dates.push(toISODate(d));
+      }
+      if (dates.length === 0) { err.textContent = "Im gewählten Zeitraum liegt kein passender Wochentag."; return; }
+      if (dates.length > 150) { err.textContent = `Das wären ${dates.length} Termine — bitte den Zeitraum eingrenzen (max. 150 auf einmal).`; return; }
+
+      const btn = document.getElementById("btn-create-series");
+      btn.disabled = true;
+      status.textContent = `Lege ${dates.length} Termine an …`;
+
+      let created = 0, skipped = 0;
+      for (const date of dates) {
+        try {
+          const res = await api("/trainings", { method: "POST", body: { date, time, ort, note } });
+          if (res.inserted) created++; else skipped++;
+        } catch (e) {
+          // einzelner Termin fehlgeschlagen - einfach mit den restlichen weitermachen
+        }
+      }
+      status.textContent = `Fertig: ${created} Trainings angelegt${skipped > 0 ? `, ${skipped} bereits vorhanden übersprungen` : ""}.`;
+      btn.disabled = false;
+      state.weekStart = startOfWeek(start);
+      await loadTrainings();
+      render();
+    };
 
     document.getElementById("btn-add-training").onclick = async () => {
       const date = document.getElementById("new-date").value;
