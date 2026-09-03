@@ -16,15 +16,20 @@
 <body>
 <div class="field-lines"></div>
 <header>
-  <div style="display:flex;align-items:center;gap:12px;">
-    <img src="/icons/club-logo.png" alt="Vereinslogo" style="width:44px;height:44px;border-radius:8px;background:#fff;object-fit:contain;padding:4px;">
-    <div>
-      <h1>Trainingsplaner</h1>
-      <p>Trainingsanmeldung und Statistik für den Verein</p>
-      <p style="color:#cfe3d1;font-style:italic;font-size:11px;margin:2px 0 0;opacity:.85;">powered by Jakob Danecker</p>
-    </div>
+  <div class="header-row">
+    <img src="/icons/club-logo.png" alt="Vereinslogo" class="header-logo">
+    <h1>Trainingsplaner</h1>
+    <button id="btn-info" class="info-btn" aria-label="Info zur App" title="Info zur App">i</button>
   </div>
 </header>
+<div id="info-overlay" class="info-overlay" style="display:none;">
+  <div class="info-box">
+    <button id="btn-info-close" class="info-close" aria-label="Schließen">✕</button>
+    <h3>Trainingsplaner</h3>
+    <p>Trainingsanmeldung (Zusage/Vielleicht/Absage), Spielplan und Teilnahme-Statistik für den TSV Utzenaich Antiesenhofen.</p>
+    <p class="powered-by">powered by Jakob Danecker</p>
+  </div>
+</div>
 <div id="whoami-bar"></div>
 <div class="wrap" id="app"></div>
 

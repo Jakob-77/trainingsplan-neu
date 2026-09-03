@@ -36,6 +36,32 @@ header{
 }
 header h1{margin:0;font-size:22px;font-weight:700;letter-spacing:.2px;}
 header p{margin:4px 0 0;font-size:13px;color:#cfe3d1;}
+.header-row{display:flex;align-items:center;gap:12px;}
+.header-logo{width:44px;height:44px;border-radius:8px;background:#fff;object-fit:contain;padding:4px;flex:0 0 auto;}
+.header-row h1{flex:1;min-width:0;}
+.info-btn{
+  flex:0 0 auto;width:28px;height:28px;padding:0;border-radius:50%;
+  background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.5);color:#fff;
+  font-size:14px;font-weight:700;font-style:italic;font-family:Georgia,serif;
+  display:flex;align-items:center;justify-content:center;line-height:1;
+}
+.info-btn:hover{background:rgba(255,255,255,.3);}
+.info-overlay{
+  position:fixed;inset:0;background:rgba(20,30,25,.55);z-index:100;
+  display:flex;align-items:center;justify-content:center;padding:20px;
+}
+.info-box{
+  position:relative;background:#fff;border-radius:var(--radius);padding:22px 20px 18px;
+  max-width:340px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);
+}
+.info-box h3{margin:0 0 8px;color:var(--grass-dark);font-size:16px;}
+.info-box p{margin:0 0 6px;font-size:13.5px;color:var(--ink);line-height:1.4;}
+.info-box .powered-by{margin-top:12px;font-size:11px;font-style:italic;color:var(--ink-soft);opacity:.85;}
+.info-close{
+  position:absolute;top:10px;right:10px;width:26px;height:26px;padding:0;
+  background:transparent;color:var(--ink-soft);border:none;font-size:14px;
+}
+.info-close:hover{background:var(--bg);}
 .wrap{max-width:760px;margin:0 auto;padding:20px 16px 60px;}
 .card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:18px 20px;margin-bottom:18px;}
 .card h2{margin:0 0 14px;font-size:15px;text-transform:uppercase;letter-spacing:.6px;color:var(--grass-dark);font-weight:700;}
@@ -72,9 +98,11 @@ button:disabled{opacity:.45;cursor:not-allowed;}
 .rsvp-buttons button.active-absage{background:var(--danger);border-color:var(--danger);}
 .rsvp-buttons button.inactive{background:#fff;color:var(--ink);border-color:#c7cec8;}
 table{width:100%;border-collapse:collapse;font-size:13.5px;}
-th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap;}
 th{color:var(--ink-soft);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.3px;}
 tr:last-child td{border-bottom:none;}
+.table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;}
+.table-scroll table{min-width:480px;}
 .whoami{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--grass-dark);color:#fff;padding:8px 24px;font-size:13px;flex-wrap:wrap;}
 .whoami b{font-weight:700;}
 .whoami button{background:transparent;border:1px solid rgba(255,255,255,.5);color:#fff;padding:4px 10px;font-size:12px;}
@@ -105,3 +133,21 @@ tr:last-child td{border-bottom:none;}
 .match-team{display:flex;align-items:center;gap:6px;}
 .match-logo{width:28px;height:28px;object-fit:contain;border-radius:5px;background:#fff;padding:2px;}
 .match-logo-sm{width:20px;height:20px;object-fit:contain;border-radius:4px;background:#fff;padding:1px;vertical-align:middle;}
+
+/* Mobile-Anpassungen: Felder nebeneinander werden gestapelt statt gequetscht,
+   Tabs/Wochen-Navigation bekommen mehr Luft, Ränder werden etwas schmaler. */
+@media (max-width: 480px) {
+  .wrap{padding:14px 10px 50px;}
+  .card{padding:14px 14px;}
+  header{padding:16px 16px 18px;padding-top:calc(16px + env(safe-area-inset-top));}
+  header h1{font-size:19px;}
+  .row{flex-direction:column;}
+  .row > *{min-width:100%;}
+  .tabs{gap:6px;}
+  .tabs button{flex:1;min-width:0;padding:8px 4px;font-size:12.5px;white-space:nowrap;}
+  .week-nav{gap:6px;}
+  .week-nav .week-label{min-width:0;font-size:13px;}
+  .next-training-banner,.next-match-banner{padding:12px 14px;}
+  .match-teams{font-size:14px;}
+  th,td{padding:6px 6px;font-size:12.5px;}
+}

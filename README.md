@@ -141,13 +141,34 @@ Deshalb bewusst einfach gehalten: **Trainer pflegen den Spielplan unter Verwaltu
 Ort, Hinweis). Das zeitlich nächste eingetragene Spiel erscheint automatisch oben im Trainingsplan
 als Banner mit beiden Vereinslogos und Countdown.
 
-**Schnellstart:** Der Button "Saison-Vorlage importieren" trägt auf einen Klick die zehn zum
-Zeitpunkt der Entwicklung (01.09.2026) bekannten kommenden Spiele (Runde 4–13) samt der offiziellen
-Vereinslogos von fan.at ein — spart beim ersten Einrichten das einzelne Abtippen. Mehrfaches
-Klicken erzeugt keine doppelten Einträge. Danach einfach über das Formular ergänzen, sobald neue
-Runden feststehen. Schiedsrichter werden auf fan.at erst nach dem Spiel im Nachhinein bekannt
-gegeben — das Feld ist deshalb bei zukünftigen Spielen meist leer, kann aber jederzeit von Hand
-nachgetragen werden, sobald ihr es selbst wisst.
+**Neue Saison eintragen — Massen-Import per JSON:** Unter Verwaltung → Spielplan → "Mehrere Spiele
+auf einmal importieren" gibt es ein Textfeld für ein JSON-Format, mit dem sich ein ganzer Spielplan
+auf einen Schlag einfügen lässt — unabhängig von der Saison, kein Code-Update nötig. Praktisch:
+genau dieses Format kann eine KI (z. B. Claude) für euch erzeugen — einfach den neuen Spielplan
+nennen (z. B. Link zu fan.at oder die Liste der Spiele) und um eine Ausgabe "in diesem exakten
+JSON-Format" bitten:
+
+```json
+[
+  {
+    "opponent": "FC Musterheim",
+    "date": "2027-03-14",
+    "time": "16:00",
+    "isHome": true,
+    "round": "Runde 1",
+    "opponentLogoUrl": "",
+    "ort": "",
+    "referee": "",
+    "note": ""
+  }
+]
+```
+
+Pflichtfelder: `opponent`, `date` (JJJJ-MM-TT), `time` (SS:MM, 24h), `isHome` (`true` = Heimspiel
+für TSV Utzenaich, `false` = Auswärtsspiel). Alle anderen Felder sind optional und können auch
+ganz weggelassen werden. Mehrfaches Importieren derselben Liste erzeugt keine doppelten Einträge
+(Duplikat-Schutz über Gegner+Datum+Uhrzeit). Schiedsrichter werden auf fan.at erst nach dem Spiel
+im Nachhinein bekannt gegeben — das Feld bleibt bei zukünftigen Spielen deshalb meist leer.
 
 Falls ihr das doch noch automatisieren wollt, wäre der zuverlässige Weg das offizielle
 "Vereins-Widget" des Oberösterreichischen Fußballverbands (fussballoesterreich.at, Bereich
@@ -171,8 +192,9 @@ und dafür nicht durch Bot-Schutz blockiert.
   über "Notiz bearbeiten" änderbar. **Die Abstimmung schließt automatisch 1 Stunde vor
   Trainingsbeginn** (serverseitig abgesichert, nicht nur im Frontend).
 - **Spielplan**: Trainer pflegen ihn in der Verwaltung (Gegner inkl. optionalem Logo, Heim/Auswärts,
-  Datum, Uhrzeit, Runde, Schiedsrichter, Ort, Hinweis) — auf Knopfdruck mit einer vorbereiteten
-  Saison-Vorlage (10 Spiele) befüllbar, jeder Eintrag jederzeit bearbeitbar oder löschbar. Das
+  Datum, Uhrzeit, Runde, Schiedsrichter, Ort, Hinweis), einzeln oder per JSON-Massen-Import für
+  eine ganze Saison auf einmal (Format siehe eigener Abschnitt oben — wiederverwendbar für jede
+  künftige Saison, kein Code-Update nötig), jeder Eintrag jederzeit bearbeitbar oder löschbar. Das
   nächste Spiel erscheint automatisch oben im Trainingsplan als Banner mit beiden Vereinslogos
   und Countdown, lässt sich über einen Schalter in der Verwaltung bei Bedarf auch ganz
   ausblenden. (Ein automatischer Abruf von fan.at wurde ausprobiert, ist aber technisch nicht
@@ -200,8 +222,12 @@ und dafür nicht durch Bot-Schutz blockiert.
   Trainer kann sich dabei nicht selbst löschen (Schutz vor versehentlichem Aussperren).
 - Verwaltung ist ausschließlich für Trainer sichtbar und nutzbar — sowohl im Menü als auch
   serverseitig abgesichert.
-- Als App installierbar (PWA), inkl. eurem Vereinswappen als App-Icon. Kleiner Hinweis
-  "powered by Jakob Danecker" im Header.
+- Als App installierbar (PWA), inkl. eurem Vereinswappen als App-Icon. Kleines "i"-Symbol
+  oben im Header öffnet ein kompaktes Info-Popup mit kurzer App-Beschreibung und dem Hinweis
+  "powered by Jakob Danecker" (dezent, nicht mehr dauerhaft sichtbar im Header selbst).
+- Mobile Ansicht überarbeitet: Statistik-Tabelle scrollt bei Bedarf horizontal innerhalb der
+  Karte statt das Layout zu sprengen, nebeneinanderliegende Formularfelder stapeln sich auf
+  schmalen Bildschirmen automatisch untereinander, Tab-Leiste/Wochen-Navigation angepasst.
 
 ## Code-Review (Stand: aktuelle Version)
 

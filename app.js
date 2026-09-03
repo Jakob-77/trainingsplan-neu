@@ -719,19 +719,21 @@
       <div class="card">
         <h2>Trainingsbeteiligung — ${seasonLabel}</h2>
         <p class="muted" style="margin-top:-8px;">${state.stats.trainingCount} Trainings gesamt, davon ${state.stats.pastTrainingCount} bereits stattgefunden.</p>
-        <table>
-          <thead><tr><th>Spieler</th><th>Zusagen</th><th>Quote*</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
-          <tbody>
-            ${state.stats.rows.map((r) => `<tr>
-              <td>${escapeHtml(r.name)}</td>
-              <td>${r.zusagen}</td>
-              <td>${r.quote}%</td>
-              <td>${r.vielleicht}</td>
-              <td>${r.absagen}</td>
-              <td>${r.offen}</td>
-            </tr>`).join("")}
-          </tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Spieler</th><th>Zusagen</th><th>Quote*</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
+            <tbody>
+              ${state.stats.rows.map((r) => `<tr>
+                <td>${escapeHtml(r.name)}</td>
+                <td>${r.zusagen}</td>
+                <td>${r.quote}%</td>
+                <td>${r.vielleicht}</td>
+                <td>${r.absagen}</td>
+                <td>${r.offen}</td>
+              </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>
         <p class="muted" style="margin-top:8px;font-size:11.5px;">*Quote = Zusagen bezogen auf die bisher bereits stattgefundenen Trainings dieser Saison (zukünftige, noch offene Trainings zählen nicht mit).</p>
       </div>`;
   }
@@ -848,8 +850,32 @@
           <button class="small secondary" id="btn-toggle-past-matches">${state.showPastMatches ? "Vergangene Spiele ausblenden" : `${pastMatches.length} vergangene Spiele anzeigen`}</button>
         </div>` : ""}
 
-        <div style="margin-top:14px;"><button class="small secondary" id="btn-import-season">📥 Saison-Vorlage importieren (10 Spiele, Runde 4–13)</button></div>
-        <div id="import-status" class="muted" style="margin-top:6px;"></div>
+        <details style="margin-top:16px;">
+          <summary style="cursor:pointer;font-weight:600;font-size:13.5px;color:var(--grass-dark);">📥 Mehrere Spiele auf einmal importieren (z. B. für eine neue Saison)</summary>
+          <p class="muted" style="margin-top:8px;">
+            Praktisch für den Saisonstart: Statt jedes Spiel einzeln einzutippen, hier eine
+            Liste im JSON-Format einfügen. Genau dieses Format kann z. B. eine KI (wie Claude)
+            anhand des Spielplans einer neuen Saison für euch erzeugen — einfach den Spielplan
+            (z. B. von fan.at) nennen und um eine Liste "in diesem exakten JSON-Format" bitten.
+          </p>
+          <p class="muted" style="font-size:12px;">Pflichtfelder: opponent, date (JJJJ-MM-TT), time (SS:MM), isHome (true/false). Optional: round, opponentLogoUrl, ort, referee, note.</p>
+          <textarea id="bulk-matches-json" rows="8" style="font-family:monospace;font-size:12px;" placeholder='[
+  {
+    "opponent": "FC Musterheim",
+    "date": "2027-03-14",
+    "time": "16:00",
+    "isHome": true,
+    "round": "Runde 1",
+    "opponentLogoUrl": "",
+    "ort": "",
+    "referee": "",
+    "note": ""
+  }
+]'></textarea>
+          <div id="bulk-import-error" class="error" style="display:none;"></div>
+          <div id="bulk-import-status" class="info"></div>
+          <div style="margin-top:8px;"><button class="small" id="btn-bulk-import-matches">Spiele aus JSON importieren</button></div>
+        </details>
 
         <h2 style="margin-top:22px;">Neues Spiel eintragen</h2>
         <div class="row">
@@ -1071,38 +1097,72 @@
       };
     }
 
-    // Fertige Vorlage mit den zehn kommenden Spielen inkl. Vereinslogos, so wie am
-    // 01.09.2026 von fan.at abgerufen (spg-utzenaich-antiesenhofen.fan.at/spiele).
-    // "INSERT OR IGNORE" auf dem Server verhindert doppelte Eintraege bei mehrfachem Klick.
-    const SEASON_IMPORT = [
-      { round: "Runde 4", opponent: "Union Raiba Gilgenberg", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/5a57884e-5a67-4df4-a045-c6fdae84eafd_92x92.png", date: "2026-09-06", time: "16:00", isHome: false },
-      { round: "Runde 5", opponent: "Union Sanube Diersbach", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/ad138021-3906-4ff8-a52e-f50dfe9ce86d_92x92.png", date: "2026-09-12", time: "16:00", isHome: true },
-      { round: "Runde 6", opponent: "TSU Jeging", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/7cdc865f-cbbd-4b6a-9f90-ee4fdd474186_92x92.png", date: "2026-09-20", time: "16:00", isHome: false },
-      { round: "Runde 7", opponent: "SV Ritterbräu Neumarkt/Pötting", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/187801fd-02f2-4e1f-adf0-b424f413e0fc_92x92.png", date: "2026-09-26", time: "15:00", isHome: true },
-      { round: "Runde 8", opponent: "SV Hargassner Weng", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/a6e31660-6c1b-401c-a35a-1e5a01bca3eb_92x92.png", date: "2026-10-02", time: "19:30", isHome: false },
-      { round: "Runde 9", opponent: "Union Raiffeisen Gurten 1b", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/367c6b06-7fce-4e4f-bdd3-e14002a4cc12_92x92.png", date: "2026-10-10", time: "16:00", isHome: false },
-      { round: "Runde 10", opponent: "USV Erler Haus Neuhofen", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/35fbb393-0850-4436-99ce-a0ef59699548_92x92.png", date: "2026-10-17", time: "15:30", isHome: true },
-      { round: "Runde 11", opponent: "FC Munderfing", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/33977940-6dda-4b4e-8c60-6a4453534086_92x92.png", date: "2026-10-24", time: "14:30", isHome: false },
-      { round: "Runde 12", opponent: "Union CAB Rainbach im Innkreis", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/5209198a-e844-4dca-9639-98eb014419ae_92x92.png", date: "2026-10-31", time: "14:30", isHome: true },
-      { round: "Runde 13", opponent: "SPG Palting/Seeham", opponentLogoUrl: "https://fanat-prod.b-cdn.net/images/b41c0652-fa10-4d98-bdcf-1ec92d3b6543_92x92.png", date: "2026-11-08", time: "14:00", isHome: false },
-    ];
+    // Generischer JSON-Import fuer mehrere Spiele auf einmal - funktioniert fuer jede Saison,
+    // nicht auf eine bestimmte fest einprogrammiert. Das JSON kann z. B. von einer KI anhand
+    // eines Spielplans erzeugt werden (Format siehe Platzhaltertext im Textfeld).
+    const bulkImportBtn = document.getElementById("btn-bulk-import-matches");
+    if (bulkImportBtn) {
+      bulkImportBtn.onclick = async () => {
+        const textarea = document.getElementById("bulk-matches-json");
+        const err = document.getElementById("bulk-import-error");
+        const status = document.getElementById("bulk-import-status");
+        err.style.display = "none";
+        status.textContent = "";
 
-    const importBtn = document.getElementById("btn-import-season");
-    if (importBtn) {
-      importBtn.onclick = async () => {
-        importBtn.disabled = true;
-        const status = document.getElementById("import-status");
-        let inserted = 0;
-        for (const match of SEASON_IMPORT) {
+        let data;
+        try {
+          data = JSON.parse(textarea.value.trim());
+        } catch (e) {
+          err.textContent = "Das ist kein gültiges JSON. Bitte das Format genau prüfen (z. B. mit einem Online-JSON-Validator).";
+          err.style.display = "block";
+          return;
+        }
+        if (!Array.isArray(data)) {
+          err.textContent = 'Das JSON muss eine Liste sein, also in eckigen Klammern: [ {...}, {...} ]';
+          err.style.display = "block";
+          return;
+        }
+        if (data.length === 0) {
+          err.textContent = "Die Liste ist leer.";
+          err.style.display = "block";
+          return;
+        }
+        if (data.length > 100) {
+          err.textContent = `Zu viele Einträge (${data.length}) auf einmal - bitte in Blöcken von max. 100 importieren.`;
+          err.style.display = "block";
+          return;
+        }
+
+        bulkImportBtn.disabled = true;
+        status.textContent = `Importiere ${data.length} Spiele …`;
+
+        let created = 0, skipped = 0, invalid = 0;
+        for (const item of data) {
+          const valid = item && typeof item === "object" && item.opponent && item.date && item.time && typeof item.isHome !== "undefined";
+          if (!valid) { invalid++; continue; }
           try {
-            const res = await api("/matches", { method: "POST", body: match });
-            if (res.inserted) inserted++;
+            const res = await api("/matches", {
+              method: "POST",
+              body: {
+                opponent: item.opponent,
+                date: item.date,
+                time: item.time,
+                isHome: !!item.isHome,
+                round: item.round || "",
+                opponentLogoUrl: item.opponentLogoUrl || "",
+                ort: item.ort || "",
+                referee: item.referee || "",
+                note: item.note || "",
+              },
+            });
+            if (res.inserted) created++; else skipped++;
           } catch (e) {
-            // einzelnes Spiel fehlgeschlagen - einfach mit den restlichen weitermachen
+            invalid++;
           }
         }
-        status.textContent = `${inserted} von ${SEASON_IMPORT.length} Spielen neu hinzugefügt${inserted < SEASON_IMPORT.length ? " (Rest war schon vorhanden)" : ""}.`;
-        importBtn.disabled = false;
+
+        status.textContent = `Fertig: ${created} Spiele hinzugefügt${skipped > 0 ? `, ${skipped} bereits vorhanden übersprungen` : ""}${invalid > 0 ? `, ${invalid} Einträge waren unvollständig/ungültig` : ""}.`;
+        bulkImportBtn.disabled = false;
         await loadMatches();
         render();
       };
@@ -1387,6 +1447,19 @@
       };
     });
   }
+
+  // ---------- Info-Popup (statisches UI-Element, unabhaengig vom Login-Status nutzbar) ----------
+
+  function bindInfoOverlay() {
+    const overlay = document.getElementById("info-overlay");
+    const openBtn = document.getElementById("btn-info");
+    const closeBtn = document.getElementById("btn-info-close");
+    if (!overlay || !openBtn || !closeBtn) return;
+    openBtn.onclick = () => { overlay.style.display = "flex"; };
+    closeBtn.onclick = () => { overlay.style.display = "none"; };
+    overlay.onclick = (ev) => { if (ev.target === overlay) overlay.style.display = "none"; };
+  }
+  bindInfoOverlay();
 
   // ---------- Start ----------
 
