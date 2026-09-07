@@ -223,11 +223,19 @@ und dafür nicht durch Bot-Schutz blockiert.
 - Verwaltung ist ausschließlich für Trainer sichtbar und nutzbar — sowohl im Menü als auch
   serverseitig abgesichert.
 - Als App installierbar (PWA), inkl. eurem Vereinswappen als App-Icon. Kleines "i"-Symbol
-  oben im Header öffnet ein kompaktes Info-Popup mit kurzer App-Beschreibung und dem Hinweis
-  "powered by Jakob Danecker" (dezent, nicht mehr dauerhaft sichtbar im Header selbst).
+  oben im Header öffnet ein kompaktes Info-Popup mit kurzer App-Beschreibung, den verwendeten
+  Diensten (GitHub, Vercel, Turso), einem kurzen Hinweis, wie Änderungswünsche funktionieren
+  (Claude beschreiben → aktualisierte ZIP-Datei → auf GitHub hochladen → Vercel deployt
+  automatisch), und dem Hinweis "powered by Jakob Danecker" (dezent, nicht mehr dauerhaft
+  sichtbar im Header selbst).
 - Mobile Ansicht überarbeitet: Statistik-Tabelle scrollt bei Bedarf horizontal innerhalb der
   Karte statt das Layout zu sprengen, nebeneinanderliegende Formularfelder stapeln sich auf
   schmalen Bildschirmen automatisch untereinander, Tab-Leiste/Wochen-Navigation angepasst.
+- Spielplan-Liste in der Verwaltung ist eingeklappt (zeigt nur die Anzahl bevorstehender Spiele)
+  und lässt sich mit einem Klick aufklappen, analog zur Spielerliste — bleibt dadurch auch nach
+  Jahren mit vielen Spielen übersichtlich. Beim JSON-Massenimport gibt es außerdem einen
+  "Format-Vorlage kopieren"-Button, um die genaue Formatvorlage z. B. direkt an eine KI
+  weiterzugeben.
 
 ## Code-Review (Stand: aktuelle Version)
 

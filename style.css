@@ -53,10 +53,13 @@ header p{margin:4px 0 0;font-size:13px;color:#cfe3d1;}
 .info-box{
   position:relative;background:#fff;border-radius:var(--radius);padding:22px 20px 18px;
   max-width:340px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.25);
+  max-height:85vh;overflow-y:auto;
 }
 .info-box h3{margin:0 0 8px;color:var(--grass-dark);font-size:16px;}
 .info-box p{margin:0 0 6px;font-size:13.5px;color:var(--ink);line-height:1.4;}
-.info-box .powered-by{margin-top:12px;font-size:11px;font-style:italic;color:var(--ink-soft);opacity:.85;}
+.info-box .info-tech-label{margin:14px 0 4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--ink-soft);}
+.info-box .info-tech-list{margin:0 0 6px;padding-left:18px;font-size:13px;color:var(--ink);line-height:1.5;}
+.info-box .powered-by{margin-top:14px;font-size:11px;font-style:italic;color:var(--ink-soft);opacity:.85;}
 .info-close{
   position:absolute;top:10px;right:10px;width:26px;height:26px;padding:0;
   background:transparent;color:var(--ink-soft);border:none;font-size:14px;

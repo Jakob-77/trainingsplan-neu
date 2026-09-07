@@ -1,6 +1,22 @@
 (function () {
   "use strict";
 
+  // Beispiel-Format fuer den Spielplan-Massenimport - wird sowohl als Platzhalter im Textfeld
+  // als auch beim "Format kopieren"-Button verwendet, damit beides garantiert identisch bleibt.
+  const BULK_MATCH_FORMAT_EXAMPLE = `[
+  {
+    "opponent": "FC Musterheim",
+    "date": "2027-03-14",
+    "time": "16:00",
+    "isHome": true,
+    "round": "Runde 1",
+    "opponentLogoUrl": "",
+    "ort": "",
+    "referee": "",
+    "note": ""
+  }
+]`;
+
   const state = {
     me: null,
     trainings: [],
@@ -24,6 +40,7 @@
     currentSeasonId: null, // von Server ermittelt: welche Saison "heute" gerade laeuft
     statsSeasonId: "current", // "current" | "all" | <id> - was in der Statistik ausgewaehlt ist
     showPastMatches: false, // Spielplan in der Verwaltung: vergangene Spiele standardmaessig ausgeblendet
+    matchesListOpen: false, // Spielplan-Liste startet eingeklappt, wie die Spielerliste
   };
 
   function escapeHtml(str) {
@@ -791,13 +808,17 @@
       </div>
 
       <div class="card">
-        <h2>Spielplan</h2>
+        <div class="top-bar">
+          <h2 style="margin:0;">Spielplan (${upcomingMatches.length} bevorstehend)</h2>
+          <button class="small secondary" id="btn-toggle-matches-list">${state.matchesListOpen ? "Ausblenden" : "Anzeigen"}</button>
+        </div>
         <p class="muted">Das zeitlich nächste Spiel wird automatisch oben im Trainingsplan als Banner angezeigt.</p>
         <label class="switch-row">
           <input type="checkbox" id="toggle-match-banner" ${state.showMatchBanner ? "checked" : ""}>
           Spielvorschau im Trainingsplan anzeigen
         </label>
 
+        ${state.matchesListOpen ? `
         ${matchesToShow.length === 0 ? `<p class="empty">${state.showPastMatches ? "Noch keine Spiele eingetragen." : "Keine bevorstehenden Spiele eingetragen."}</p>` : matchesToShow.map((m) => {
           const isEditingMatch = state.editingMatchId === m.id;
           if (isEditingMatch) {
@@ -849,6 +870,7 @@
         <div style="margin-top:10px;">
           <button class="small secondary" id="btn-toggle-past-matches">${state.showPastMatches ? "Vergangene Spiele ausblenden" : `${pastMatches.length} vergangene Spiele anzeigen`}</button>
         </div>` : ""}
+        ` : ""}
 
         <details style="margin-top:16px;">
           <summary style="cursor:pointer;font-weight:600;font-size:13.5px;color:var(--grass-dark);">📥 Mehrere Spiele auf einmal importieren (z. B. für eine neue Saison)</summary>
@@ -859,19 +881,11 @@
             (z. B. von fan.at) nennen und um eine Liste "in diesem exakten JSON-Format" bitten.
           </p>
           <p class="muted" style="font-size:12px;">Pflichtfelder: opponent, date (JJJJ-MM-TT), time (SS:MM), isHome (true/false). Optional: round, opponentLogoUrl, ort, referee, note.</p>
-          <textarea id="bulk-matches-json" rows="8" style="font-family:monospace;font-size:12px;" placeholder='[
-  {
-    "opponent": "FC Musterheim",
-    "date": "2027-03-14",
-    "time": "16:00",
-    "isHome": true,
-    "round": "Runde 1",
-    "opponentLogoUrl": "",
-    "ort": "",
-    "referee": "",
-    "note": ""
-  }
-]'></textarea>
+          <div style="margin-bottom:6px;">
+            <button type="button" class="small secondary" id="btn-copy-format">📋 Format-Vorlage kopieren</button>
+            <span id="copy-format-feedback" class="muted" style="margin-left:6px;"></span>
+          </div>
+          <textarea id="bulk-matches-json" rows="8" style="font-family:monospace;font-size:12px;" placeholder="${escapeHtml(BULK_MATCH_FORMAT_EXAMPLE)}"></textarea>
           <div id="bulk-import-error" class="error" style="display:none;"></div>
           <div id="bulk-import-status" class="info"></div>
           <div style="margin-top:8px;"><button class="small" id="btn-bulk-import-matches">Spiele aus JSON importieren</button></div>
@@ -1063,6 +1077,14 @@
       };
     }
 
+    const toggleMatchesListBtn = document.getElementById("btn-toggle-matches-list");
+    if (toggleMatchesListBtn) {
+      toggleMatchesListBtn.onclick = () => {
+        state.matchesListOpen = !state.matchesListOpen;
+        render();
+      };
+    }
+
     const toggleBannerCb = document.getElementById("toggle-match-banner");
     if (toggleBannerCb) {
       toggleBannerCb.onchange = async () => {
@@ -1100,6 +1122,20 @@
     // Generischer JSON-Import fuer mehrere Spiele auf einmal - funktioniert fuer jede Saison,
     // nicht auf eine bestimmte fest einprogrammiert. Das JSON kann z. B. von einer KI anhand
     // eines Spielplans erzeugt werden (Format siehe Platzhaltertext im Textfeld).
+    const copyFormatBtn = document.getElementById("btn-copy-format");
+    if (copyFormatBtn) {
+      copyFormatBtn.onclick = async () => {
+        const feedback = document.getElementById("copy-format-feedback");
+        try {
+          await navigator.clipboard.writeText(BULK_MATCH_FORMAT_EXAMPLE);
+          feedback.textContent = "✓ In Zwischenablage kopiert!";
+        } catch (e) {
+          feedback.textContent = "Kopieren nicht möglich - Text im Feld bitte manuell markieren.";
+        }
+        setTimeout(() => { feedback.textContent = ""; }, 3000);
+      };
+    }
+
     const bulkImportBtn = document.getElementById("btn-bulk-import-matches");
     if (bulkImportBtn) {
       bulkImportBtn.onclick = async () => {
