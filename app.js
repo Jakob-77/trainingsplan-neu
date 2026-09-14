@@ -1,6 +1,16 @@
 (function () {
   "use strict";
 
+  // ============================================================
+  // EINZIGE STELLE, DIE FÜR EINEN ANDEREN VEREIN/EINE ANDERE MANNSCHAFT
+  // GEÄNDERT WERDEN MUSS: der Vereinsname. Wird überall in der App verwendet
+  // (Spiel-Banner, Verwaltung, Info-Popup) - für eine neue, unabhängige
+  // Installation (siehe README, Abschnitt "Für einen anderen Verein/eine
+  // andere Mannschaft nutzen") reicht es, diese eine Zeile anzupassen.
+  // Das Vereinslogo wird separat über die Dateien in /icons/ ausgetauscht.
+  // ============================================================
+  const CLUB_NAME = "TSV Utzenaich";
+
   // Beispiel-Format fuer den Spielplan-Massenimport - wird sowohl als Platzhalter im Textfeld
   // als auch beim "Format kopieren"-Button verwendet, damit beides garantiert identisch bleibt.
   const BULK_MATCH_FORMAT_EXAMPLE = `[
@@ -477,8 +487,8 @@
     const oppLogo = m.opponentLogoUrl || "";
     const homeLogo = m.isHome ? ownLogo : oppLogo;
     const awayLogo = m.isHome ? oppLogo : ownLogo;
-    const homeLabel = m.isHome ? "TSV Utzenaich" : m.opponent;
-    const awayLabel = m.isHome ? m.opponent : "TSV Utzenaich";
+    const homeLabel = m.isHome ? CLUB_NAME : m.opponent;
+    const awayLabel = m.isHome ? m.opponent : CLUB_NAME;
     return `
       <div class="next-match-banner">
         <div class="match-teams">
@@ -858,7 +868,7 @@
           <div class="list-item">
             <span style="display:flex;align-items:center;gap:8px;">
               ${m.opponentLogoUrl ? `<img src="${escapeHtml(m.opponentLogoUrl)}" alt="" class="match-logo-sm">` : ""}
-              <span>${m.round ? `<span class="muted">${escapeHtml(m.round)}:</span> ` : ""}${m.isHome ? `TSV Utzenaich – ${escapeHtml(m.opponent)}` : `${escapeHtml(m.opponent)} – TSV Utzenaich`} <span class="muted">(${fmtDate(m.date)}, ${m.time} Uhr)</span></span>
+              <span>${m.round ? `<span class="muted">${escapeHtml(m.round)}:</span> ` : ""}${m.isHome ? `${CLUB_NAME} – ${escapeHtml(m.opponent)}` : `${escapeHtml(m.opponent)} – ${CLUB_NAME}`} <span class="muted">(${fmtDate(m.date)}, ${m.time} Uhr)</span></span>
             </span>
             <span class="row" style="max-width:200px;">
               <button class="small secondary btn-edit-match" data-match-id="${m.id}">Bearbeiten</button>
@@ -912,7 +922,7 @@
           <div><label>Schiedsrichter (optional)</label><input type="text" id="nm-referee" placeholder="wird meist erst kurzfristig bekannt"></div>
         </div>
         <label>Ort (optional)</label>
-        <input type="text" id="nm-ort" placeholder="z. B. Sportplatz Utzenaich">
+        <input type="text" id="nm-ort" placeholder="z. B. Sportplatz Hauptplatz 1">
         <label>Hinweis (optional)</label>
         <input type="text" id="nm-note" placeholder="z. B. Meisterschaftsspiel">
         <div id="nm-error" class="error"></div>
@@ -1490,6 +1500,8 @@
     const overlay = document.getElementById("info-overlay");
     const openBtn = document.getElementById("btn-info");
     const closeBtn = document.getElementById("btn-info-close");
+    const desc = document.getElementById("info-club-description");
+    if (desc) desc.textContent = `Trainingsanmeldung (Zusage/Vielleicht/Absage), Spielplan und Teilnahme-Statistik für den ${CLUB_NAME}.`;
     if (!overlay || !openBtn || !closeBtn) return;
     openBtn.onclick = () => { overlay.style.display = "flex"; };
     closeBtn.onclick = () => { overlay.style.display = "none"; };

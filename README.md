@@ -103,6 +103,35 @@ dev-server.js                         Nur für lokale Tests, auf Vercel nicht ve
 vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe zur Funktion finden
 ```
 
+## Für einen anderen Verein oder eine andere Mannschaft nutzen
+
+Der Code ist bewusst so gebaut, dass er sich leicht für einen komplett anderen Verein oder eine
+eigenständige Mannschaft (z. B. eine Jugendmannschaft mit eigenem Login, unabhängig von der
+Kampfmannschaft) wiederverwenden lässt — als **eigene, unabhängige Installation** (eigenes
+GitHub-Repository, eigenes Vercel-Projekt, eigene Turso-Datenbank; die Schritte dafür stehen
+weiter oben). Kostenmäßig ändert das nichts, jede Installation läuft für sich im kostenlosen
+Rahmen.
+
+Nur zwei Dinge müssen dafür angepasst werden:
+
+1. **Vereinsname**: ganz oben in `app.js` steht `const CLUB_NAME = "TSV Utzenaich";` — das ist
+   die einzige Stelle im gesamten Code, die den Vereinsnamen enthält (wird automatisch überall
+   verwendet: Spiel-Banner, Verwaltung, Info-Popup). Einfach den Namen in dieser einen Zeile
+   ändern, fertig.
+2. **Vereinslogo**: die fünf Bild-Dateien im Ordner `icons/` durch das neue Logo ersetzen
+   (gleicher Dateiname, gleiche Bildgröße beibehalten):
+
+   | Datei | Größe | Wofür |
+   |---|---|---|
+   | `club-logo.png` | ca. 160×160 px | Logo oben im Header |
+   | `icon-192.png` | 192×192 px | App-Icon (klein) |
+   | `icon-512.png` | 512×512 px | App-Icon (groß) |
+   | `icon-maskable-512.png` | 512×512 px | App-Icon Android (Motiv mittig, Rand kann abgeschnitten werden) |
+   | `apple-touch-icon.png` | 180×180 px | App-Icon iPhone/iPad |
+
+Alles andere (Trainingsanmeldung, Spielplan, Statistik, Saisonen, Verwaltung) funktioniert
+identisch, unabhängig vom Verein.
+
 ## Saisonen (Statistik-Reset & Übersichtlichkeit über Jahre hinweg)
 
 Damit die App auch nach Jahren mit vielen Trainings/Spielen übersichtlich bleibt und die
