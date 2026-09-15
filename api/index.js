@@ -321,6 +321,37 @@ app.get("/api/trainings/:id/overview", requireLogin, async (req, res) => {
   res.json({ groups, guests: guests.map((g) => ({ id: g.id, name: g.name })) });
 });
 
+// Trainer traegt eine Rueckmeldung stellvertretend fuer einen registrierten Spieler ein -
+// z. B. wenn die Abstimmfrist (1 Stunde vor Trainingsbeginn) schon vorbei ist und der Spieler
+// telefonisch absagt, oder um rueckwirkend etwas zu korrigieren. Bewusst OHNE die 1-Stunde-Sperre,
+// die fuer die Selbst-Abstimmung der Spieler gilt (siehe /api/trainings/:id/rsvp) - das hier ist
+// ausdruecklich der Weg, diese Sperre als Trainer zu umgehen.
+app.post("/api/trainings/:id/rsvp-for/:playerId", requireLogin, requireAdmin, async (req, res) => {
+  const trainingId = Number(req.params.id);
+  const playerId = Number(req.params.playerId);
+  const { status, reason } = req.body || {};
+  if (!["zusage", "vielleicht", "absage"].includes(status)) {
+    return res.status(400).json({ error: "Ungueltiger Status." });
+  }
+  if ((status === "vielleicht" || status === "absage") && (!reason || !reason.trim())) {
+    return res.status(400).json({ error: "Bitte einen Grund angeben." });
+  }
+  const training = await db.get("SELECT id FROM trainings WHERE id = ?", [trainingId]);
+  if (!training) return res.status(404).json({ error: "Training nicht gefunden." });
+  const player = await db.get("SELECT id FROM players WHERE id = ?", [playerId]);
+  if (!player) return res.status(404).json({ error: "Spieler nicht gefunden." });
+
+  const cleanReason = reason && reason.trim() ? reason.trim() : null;
+  await db.run(
+    `INSERT INTO responses (training_id, player_id, status, reason, updated_at)
+     VALUES (?, ?, ?, ?, datetime('now'))
+     ON CONFLICT(training_id, player_id)
+     DO UPDATE SET status = excluded.status, reason = excluded.reason, updated_at = datetime('now')`,
+    [trainingId, playerId, status, cleanReason]
+  );
+  res.json({ ok: true });
+});
+
 // ---------- Gastspieler pro Training (nur Zusage, kein eigener Login) ----------
 
 app.post("/api/trainings/:id/guests", requireLogin, requireAdmin, async (req, res) => {

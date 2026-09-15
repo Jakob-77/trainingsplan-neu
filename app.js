@@ -1017,6 +1017,25 @@
             <div style="margin-top:8px;">
               ${guests.map((g) => `<span class="pill zusage" style="margin:2px 4px 2px 0;">${escapeHtml(g.name)} <a href="#" class="guest-remove" data-guest-id="${g.id}" style="color:inherit;text-decoration:none;">✕</a></span>`).join("")}
             </div>` : `<p class="muted" style="margin-top:8px;">Noch keine Gastspieler für dieses Training.</p>`}
+
+            <label style="margin-top:14px;">Rückmeldung für einen Spieler eintragen/ändern</label>
+            <p class="muted" style="font-size:11.5px;margin:2px 0 6px;">Z. B. wenn die Abstimmfrist (1 Std. vor Trainingsbeginn) schon vorbei ist, oder um rückwirkend etwas einzutragen.</p>
+            <select class="admin-rsvp-player">
+              <option value="">– Spieler wählen –</option>
+              ${state.players.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
+            </select>
+            <div class="rsvp-buttons admin-rsvp-buttons" style="margin-top:8px;">
+              <button data-status="zusage" class="inactive">Zusage</button>
+              <button data-status="vielleicht" class="inactive">Vielleicht</button>
+              <button data-status="absage" class="inactive">Absage</button>
+            </div>
+            <div class="admin-rsvp-reason-box" style="display:none;margin-top:8px;">
+              <textarea class="admin-rsvp-reason-input" placeholder="Grund (Pflichtfeld bei Vielleicht/Absage)"></textarea>
+              <div class="error admin-rsvp-reason-error" style="display:none;">Bitte einen Grund angeben.</div>
+              <div style="margin-top:6px;"><button class="small admin-rsvp-save">Speichern</button></div>
+            </div>
+            <div class="admin-rsvp-error error" style="display:none;"></div>
+            <div class="admin-rsvp-status muted" style="margin-top:4px;font-size:12px;"></div>
             `}
           </div>`;
         }).join("")}
@@ -1460,6 +1479,72 @@
           render();
         } catch (e) {
           alert(e.message);
+        }
+      };
+    });
+
+    document.querySelectorAll(".admin-rsvp-buttons button").forEach((btn) => {
+      btn.onclick = async () => {
+        const card = btn.closest("[data-admin-id]");
+        const id = card.getAttribute("data-admin-id");
+        const select = card.querySelector(".admin-rsvp-player");
+        const reasonBox = card.querySelector(".admin-rsvp-reason-box");
+        const errBox = card.querySelector(".admin-rsvp-error");
+        const statusEl = card.querySelector(".admin-rsvp-status");
+        errBox.style.display = "none";
+        statusEl.textContent = "";
+        const playerId = select.value;
+        if (!playerId) {
+          errBox.textContent = "Bitte zuerst einen Spieler auswählen.";
+          errBox.style.display = "block";
+          return;
+        }
+        const status = btn.getAttribute("data-status");
+        if (status === "zusage") {
+          try {
+            await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: "zusage", reason: "" } });
+            statusEl.textContent = `Gespeichert: ${select.options[select.selectedIndex].text} → Zusage.`;
+            select.value = "";
+          } catch (e) {
+            errBox.textContent = e.message;
+            errBox.style.display = "block";
+          }
+          return;
+        }
+        reasonBox.style.display = "block";
+        reasonBox.dataset.pending = status;
+        card.querySelector(".admin-rsvp-reason-input").focus();
+      };
+    });
+
+    document.querySelectorAll(".admin-rsvp-save").forEach((btn) => {
+      btn.onclick = async () => {
+        const card = btn.closest("[data-admin-id]");
+        const id = card.getAttribute("data-admin-id");
+        const select = card.querySelector(".admin-rsvp-player");
+        const reasonBox = card.querySelector(".admin-rsvp-reason-box");
+        const reasonInput = card.querySelector(".admin-rsvp-reason-input");
+        const reasonError = card.querySelector(".admin-rsvp-reason-error");
+        const errBox = card.querySelector(".admin-rsvp-error");
+        const statusEl = card.querySelector(".admin-rsvp-status");
+        const playerId = select.value;
+        const pending = reasonBox.dataset.pending;
+        const text = reasonInput.value.trim();
+        errBox.style.display = "none";
+        if (!text) {
+          reasonError.style.display = "block";
+          return;
+        }
+        reasonError.style.display = "none";
+        try {
+          await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: pending, reason: text } });
+          statusEl.textContent = `Gespeichert: ${select.options[select.selectedIndex].text} → ${statusLabel(pending)}.`;
+          reasonBox.style.display = "none";
+          reasonInput.value = "";
+          select.value = "";
+        } catch (e) {
+          errBox.textContent = e.message;
+          errBox.style.display = "block";
         }
       };
     });

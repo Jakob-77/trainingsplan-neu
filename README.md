@@ -242,6 +242,11 @@ und dafür nicht durch Bot-Schutz blockiert.
   Gastspieler.
 - Trainer tragen direkt bei einem Training Gastspieler ein (reine Zusage, kein Login) und können
   sie dort auch wieder entfernen.
+- **Trainer können außerdem für jeden registrierten Spieler die Rückmeldung (Zusage/Vielleicht/
+  Absage) direkt in der Verwaltung eintragen oder ändern** — bewusst ohne die 1-Stunde-Sperre,
+  die für die Selbst-Abstimmung der Spieler gilt. Praktisch, wenn jemand kurzfristig telefonisch
+  absagt/zusagt, nachdem die Abstimmung schon geschlossen ist, oder um rückwirkend etwas zu
+  korrigieren.
 - Statistik-Ansicht zeigt pro (registriertem) Spieler die Anzahl Zusagen/Vielleicht/Absagen/Offen
   sowie die Zusage-Quote in Prozent — standardmäßig nur für die aktuelle Saison, per Dropdown
   auch für andere Saisonen oder alle zusammen wählbar (siehe eigener Abschnitt "Saisonen" oben).
