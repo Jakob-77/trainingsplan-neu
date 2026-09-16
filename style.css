@@ -94,6 +94,9 @@ button:disabled{opacity:.45;cursor:not-allowed;}
 .training .head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
 .training .when{font-weight:700;font-size:15px;}
 .training .where{color:var(--ink-soft);font-size:13px;margin-top:2px;}
+.quick-tally{display:flex;gap:14px;margin-top:8px;font-size:14px;}
+.tally-item{display:inline-flex;align-items:center;gap:4px;font-weight:600;}
+.tally-item .tally-count{font-variant-numeric:tabular-nums;}
 .rsvp-buttons{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
 .rsvp-buttons button{flex:1;min-width:90px;}
 .rsvp-buttons button.active-zusage{background:var(--ok);border-color:var(--ok);}

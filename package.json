@@ -1,6 +1,6 @@
 {
   "name": "trainingsplaner",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "description": "Trainingsanmeldung und Statistik fuer den Verein - Vercel + Turso Version",
   "scripts": {
     "start": "node dev-server.js",

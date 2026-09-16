@@ -237,7 +237,10 @@ und dafür nicht durch Bot-Schutz blockiert.
   der Liste optisch hervorgehoben.
 - **Wochenweise Navigation** (◀ / ▶ / "Aktuelle Woche") sowohl bei den Trainings als auch in der
   Verwaltung — damit die Liste auch bei 50+ Trainings pro Saison übersichtlich bleibt.
-- Button "Übersicht anzeigen" bei jedem Training zeigt genau, wie viele Spieler zu-, vielleicht-
+- **Schnellansicht** (👍 ❓ 👎) direkt bei jedem Training zeigt auf einen Blick, wie viele Spieler
+  aktuell zu-, vielleicht- oder abgesagt haben — aktualisiert sich bei der eigenen Abstimmung
+  sofort, ohne Wartezeit. Für Namen und die angegebenen Gründe gibt es weiterhin den Button
+  "Übersicht anzeigen" bei jedem Training, der genau zeigt, wie viele Spieler zu-, vielleicht-
   oder abgesagt haben (mit Namen und bei Vielleicht/Absage dem angegebenen Grund) sowie zugesagte
   Gastspieler.
 - Trainer tragen direkt bei einem Training Gastspieler ein (reine Zusage, kein Login) und können

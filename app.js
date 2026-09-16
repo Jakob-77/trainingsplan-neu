@@ -547,6 +547,11 @@
           </div>
           <span class="pill ${statusClass(status)}">${statusLabel(status)}</span>
         </div>
+        <div class="quick-tally" data-quick-tally-id="${t.id}">
+          <span class="tally-item tally-yes">👍 <span class="tally-count">${t.zusageCount || 0}</span></span>
+          <span class="tally-item tally-maybe">❓ <span class="tally-count">${t.vielleichtCount || 0}</span></span>
+          <span class="tally-item tally-no">👎 <span class="tally-count">${t.absageCount || 0}</span></span>
+        </div>
         ${guestCount > 0 ? `<div class="muted" style="margin-top:8px;">➕ ${guestCount} Gast${guestCount === 1 ? "" : "gäste"}: ${escapeHtml((t.guests || []).map((g) => g.name).join(", "))}</div>` : ""}
 
         ${closed ? `
@@ -699,13 +704,29 @@
     });
   }
 
+  function tallyKey(status) {
+    return status === "zusage" ? "zusageCount" : status === "vielleicht" ? "vielleichtCount" : status === "absage" ? "absageCount" : null;
+  }
+
   async function submitRsvp(trainingId, status, reason) {
     const t = state.trainings.find((x) => String(x.id) === String(trainingId));
     if (!t) return;
-    const previous = { myStatus: t.myStatus, myReason: t.myReason };
+    const previous = {
+      myStatus: t.myStatus,
+      myReason: t.myReason,
+      zusageCount: t.zusageCount,
+      vielleichtCount: t.vielleichtCount,
+      absageCount: t.absageCount,
+    };
 
     // Optimistisch sofort anzeigen, statt auf die Serverantwort zu warten - fuehlt sich
-    // dadurch unmittelbar an, unabhaengig von der Netzwerk-Latenz.
+    // dadurch unmittelbar an, unabhaengig von der Netzwerk-Latenz. Die Schnellansicht
+    // (Daumen-Zaehler) wird dabei gleich mit angepasst: alten Status abziehen, neuen dazuzaehlen.
+    const oldKey = tallyKey(t.myStatus);
+    const newKey = tallyKey(status);
+    if (oldKey && t[oldKey] > 0) t[oldKey] -= 1;
+    if (newKey) t[newKey] = (t[newKey] || 0) + 1;
+
     t.myStatus = status;
     t.myReason = reason || null;
     render();
@@ -713,9 +734,12 @@
     try {
       await api(`/trainings/${trainingId}/rsvp`, { method: "POST", body: { status, reason } });
     } catch (e) {
-      // Fehlgeschlagen - alten Stand wiederherstellen
+      // Fehlgeschlagen - alten Stand wiederherstellen (inkl. Zaehler)
       t.myStatus = previous.myStatus;
       t.myReason = previous.myReason;
+      t.zusageCount = previous.zusageCount;
+      t.vielleichtCount = previous.vielleichtCount;
+      t.absageCount = previous.absageCount;
       render();
       alert(e.message);
     }

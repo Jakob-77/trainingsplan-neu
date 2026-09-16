@@ -211,6 +211,13 @@ app.get("/api/trainings", requireLogin, async (req, res) => {
     const guestsForTraining = guests
       .filter((g) => g.training_id === t.id)
       .map((g) => ({ id: g.id, name: g.name }));
+    // Kompakte Zaehler fuer die Schnellansicht (Daumen hoch/runter) direkt mitliefern, damit
+    // sie ohne Extra-Abruf sofort sichtbar sind - die Detailnamen gibt es weiterhin nur ueber
+    // "Uebersicht anzeigen" (/api/trainings/:id/overview).
+    const trainingResponses = responses.filter((r) => r.training_id === t.id);
+    const zusageCount = trainingResponses.filter((r) => r.status === "zusage").length;
+    const vielleichtCount = trainingResponses.filter((r) => r.status === "vielleicht").length;
+    const absageCount = trainingResponses.filter((r) => r.status === "absage").length;
     return {
       id: t.id,
       date: t.date,
@@ -220,6 +227,9 @@ app.get("/api/trainings", requireLogin, async (req, res) => {
       myStatus: myResp ? myResp.status : null,
       myReason: myResp ? myResp.reason : null,
       guests: guestsForTraining,
+      zusageCount,
+      vielleichtCount,
+      absageCount,
     };
   });
   res.json({ trainings: result });
