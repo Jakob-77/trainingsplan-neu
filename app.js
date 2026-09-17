@@ -44,6 +44,7 @@
     showMatchBanner: true, // vom Server geladene Einstellung - Trainer koennen die Spielvorschau ausblenden
     playersListOpen: false, // Spielerliste in der Verwaltung ist bei vielen Spielern lang - eingeklappt starten
     playersFilter: "",
+    adminRsvpFeedback: {}, // trainingId -> Bestaetigungstext, muss ein render() (fuer frische Zaehler) ueberleben
     editingTrainingId: null, // welches Training gerade in der Verwaltung bearbeitet wird
     editingMatchId: null, // welches Spiel gerade in der Verwaltung bearbeitet wird
     seasons: [],
@@ -1059,7 +1060,7 @@
               <div style="margin-top:6px;"><button class="small admin-rsvp-save">Speichern</button></div>
             </div>
             <div class="admin-rsvp-error error" style="display:none;"></div>
-            <div class="admin-rsvp-status muted" style="margin-top:4px;font-size:12px;"></div>
+            <div class="admin-rsvp-status muted" style="margin-top:4px;font-size:12px;">${escapeHtml(state.adminRsvpFeedback[t.id] || "")}</div>
             `}
           </div>`;
         }).join("")}
@@ -1526,9 +1527,17 @@
         const status = btn.getAttribute("data-status");
         if (status === "zusage") {
           try {
-            await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: "zusage", reason: "" } });
-            statusEl.textContent = `Gespeichert: ${select.options[select.selectedIndex].text} → Zusage.`;
-            select.value = "";
+            const result = await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: "zusage", reason: "" } });
+            state.adminRsvpFeedback[id] = `Gespeichert: ${select.options[select.selectedIndex].text} → Zusage.`;
+            // Zaehler direkt aus der Antwort uebernehmen - kein zweiter Request noetig, damit
+            // die Schnellansicht (👍/❓/👎) im Trainings-Tab sofort stimmt, ohne langsamer zu werden.
+            const trainingInState = state.trainings.find((x) => String(x.id) === String(id));
+            if (trainingInState) {
+              trainingInState.zusageCount = result.zusageCount;
+              trainingInState.vielleichtCount = result.vielleichtCount;
+              trainingInState.absageCount = result.absageCount;
+            }
+            render();
           } catch (e) {
             errBox.textContent = e.message;
             errBox.style.display = "block";
@@ -1550,7 +1559,6 @@
         const reasonInput = card.querySelector(".admin-rsvp-reason-input");
         const reasonError = card.querySelector(".admin-rsvp-reason-error");
         const errBox = card.querySelector(".admin-rsvp-error");
-        const statusEl = card.querySelector(".admin-rsvp-status");
         const playerId = select.value;
         const pending = reasonBox.dataset.pending;
         const text = reasonInput.value.trim();
@@ -1561,11 +1569,16 @@
         }
         reasonError.style.display = "none";
         try {
-          await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: pending, reason: text } });
-          statusEl.textContent = `Gespeichert: ${select.options[select.selectedIndex].text} → ${statusLabel(pending)}.`;
-          reasonBox.style.display = "none";
-          reasonInput.value = "";
-          select.value = "";
+          const playerLabel = select.options[select.selectedIndex].text;
+          const result = await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: pending, reason: text } });
+          state.adminRsvpFeedback[id] = `Gespeichert: ${playerLabel} → ${statusLabel(pending)}.`;
+          const trainingInState = state.trainings.find((x) => String(x.id) === String(id));
+          if (trainingInState) {
+            trainingInState.zusageCount = result.zusageCount;
+            trainingInState.vielleichtCount = result.vielleichtCount;
+            trainingInState.absageCount = result.absageCount;
+          }
+          render();
         } catch (e) {
           errBox.textContent = e.message;
           errBox.style.display = "block";

@@ -359,7 +359,15 @@ app.post("/api/trainings/:id/rsvp-for/:playerId", requireLogin, requireAdmin, as
      DO UPDATE SET status = excluded.status, reason = excluded.reason, updated_at = datetime('now')`,
     [trainingId, playerId, status, cleanReason]
   );
-  res.json({ ok: true });
+
+  // Aktuelle Zaehler gleich mitliefern, damit das Frontend die Schnellansicht (Trainings-Tab)
+  // ohne einen zweiten Request synchron halten kann - bleibt dadurch schnell UND korrekt.
+  const freshResponses = await db.all("SELECT status FROM responses WHERE training_id = ?", [trainingId]);
+  const zusageCount = freshResponses.filter((r) => r.status === "zusage").length;
+  const vielleichtCount = freshResponses.filter((r) => r.status === "vielleicht").length;
+  const absageCount = freshResponses.filter((r) => r.status === "absage").length;
+
+  res.json({ ok: true, zusageCount, vielleichtCount, absageCount });
 });
 
 // ---------- Gastspieler pro Training (nur Zusage, kein eigener Login) ----------

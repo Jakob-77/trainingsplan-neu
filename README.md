@@ -239,10 +239,12 @@ und dafür nicht durch Bot-Schutz blockiert.
   Verwaltung — damit die Liste auch bei 50+ Trainings pro Saison übersichtlich bleibt.
 - **Schnellansicht** (👍 ❓ 👎) direkt bei jedem Training zeigt auf einen Blick, wie viele Spieler
   aktuell zu-, vielleicht- oder abgesagt haben — aktualisiert sich bei der eigenen Abstimmung
-  sofort, ohne Wartezeit. Für Namen und die angegebenen Gründe gibt es weiterhin den Button
-  "Übersicht anzeigen" bei jedem Training, der genau zeigt, wie viele Spieler zu-, vielleicht-
-  oder abgesagt haben (mit Namen und bei Vielleicht/Absage dem angegebenen Grund) sowie zugesagte
-  Gastspieler.
+  sofort, ohne Wartezeit. Bleibt auch korrekt synchron, wenn ein Trainer über die Verwaltung eine
+  Rückmeldung für einen anderen Spieler einträgt (die Zähler kommen dabei direkt mit der
+  Server-Antwort zurück, kein zusätzlicher, verlangsamender Request nötig). Für Namen und die
+  angegebenen Gründe gibt es weiterhin den Button "Übersicht anzeigen" bei jedem Training, der
+  genau zeigt, wie viele Spieler zu-, vielleicht- oder abgesagt haben (mit Namen und bei
+  Vielleicht/Absage dem angegebenen Grund) sowie zugesagte Gastspieler.
 - Trainer tragen direkt bei einem Training Gastspieler ein (reine Zusage, kein Login) und können
   sie dort auch wieder entfernen.
 - **Trainer können außerdem für jeden registrierten Spieler die Rückmeldung (Zusage/Vielleicht/
