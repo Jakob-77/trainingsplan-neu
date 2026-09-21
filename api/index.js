@@ -435,13 +435,16 @@ app.get("/api/stats", requireLogin, async (req, res) => {
   const pastTrainingCount = pastTrainingIds.size;
 
   const rows = players.map((p) => {
-    const mine = scopedResponses.filter((r) => r.player_id === p.id);
-    const zusagen = mine.filter((r) => r.status === "zusage").length;
-    const vielleicht = mine.filter((r) => r.status === "vielleicht").length;
-    const absagen = mine.filter((r) => r.status === "absage").length;
-    const offen = trainingCount - zusagen - vielleicht - absagen;
-    const pastZusagen = mine.filter((r) => r.status === "zusage" && pastTrainingIds.has(r.training_id)).length;
-    const quote = pastTrainingCount > 0 ? Math.round((pastZusagen / pastTrainingCount) * 100) : 0;
+    // Wichtig: ALLE Spalten (nicht nur die Quote) beziehen sich einheitlich nur auf die
+    // bereits stattgefundenen Trainings dieser Saison - sonst waeren "Zusagen" (inkl.
+    // zukuenftiger, geplanter Trainings) und "Quote" (nur bisherige) nicht mehr direkt
+    // gegeneinander nachvollziehbar, was genau zu Verwirrung fuehrt.
+    const minePast = scopedResponses.filter((r) => r.player_id === p.id && pastTrainingIds.has(r.training_id));
+    const zusagen = minePast.filter((r) => r.status === "zusage").length;
+    const vielleicht = minePast.filter((r) => r.status === "vielleicht").length;
+    const absagen = minePast.filter((r) => r.status === "absage").length;
+    const offen = pastTrainingCount - zusagen - vielleicht - absagen;
+    const quote = pastTrainingCount > 0 ? Math.round((zusagen / pastTrainingCount) * 100) : 0;
     return { name: p.name, zusagen, vielleicht, absagen, offen: Math.max(offen, 0), quote };
   });
   rows.sort((a, b) => b.zusagen - a.zusagen);

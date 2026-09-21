@@ -770,7 +770,7 @@
     return seasonPicker + `
       <div class="card">
         <h2>Trainingsbeteiligung — ${seasonLabel}</h2>
-        <p class="muted" style="margin-top:-8px;">${state.stats.trainingCount} Trainings gesamt, davon ${state.stats.pastTrainingCount} bereits stattgefunden.</p>
+        <p class="muted" style="margin-top:-8px;">Bezieht sich auf die ${state.stats.pastTrainingCount} bereits stattgefundenen Trainings dieser Saison (von ${state.stats.trainingCount} insgesamt geplanten).</p>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Spieler</th><th>Zusagen</th><th>Quote*</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
@@ -786,7 +786,7 @@
             </tbody>
           </table>
         </div>
-        <p class="muted" style="margin-top:8px;font-size:11.5px;">*Quote = Zusagen bezogen auf die bisher bereits stattgefundenen Trainings dieser Saison (zukünftige, noch offene Trainings zählen nicht mit).</p>
+        <p class="muted" style="margin-top:8px;font-size:11.5px;">*Jede Spalte bezieht sich nur auf die bereits stattgefundenen Trainings — Zusagen/Vielleicht/Absagen/Offen einer Zeile ergeben zusammen genau diese Anzahl. Zukünftige, noch bevorstehende Trainings zählen hier bewusst nicht mit (die sieht man im Trainings-Tab).</p>
       </div>`;
   }
 
