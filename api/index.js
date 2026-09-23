@@ -445,13 +445,28 @@ app.get("/api/stats", requireLogin, async (req, res) => {
     const absagen = minePast.filter((r) => r.status === "absage").length;
     const offen = pastTrainingCount - zusagen - vielleicht - absagen;
     const quote = pastTrainingCount > 0 ? Math.round((zusagen / pastTrainingCount) * 100) : 0;
-    return { name: p.name, zusagen, vielleicht, absagen, offen: Math.max(offen, 0), quote };
+
+    // Tag-fuer-Tag-Uebersicht: pro bereits stattgefundenem Training der Status dieses Spielers
+    // (oder null = keine Antwort gegeben) - fuer die scrollbare Matrix-Ansicht im Frontend.
+    const byTraining = {};
+    minePast.forEach((r) => { byTraining[r.training_id] = r.status; });
+
+    return { name: p.name, zusagen, vielleicht, absagen, offen: Math.max(offen, 0), quote, byTraining };
   });
   rows.sort((a, b) => b.zusagen - a.zusagen);
+
+  // Spalten fuer die Matrix: nur bereits stattgefundene Trainings, neuestes zuerst (wie im
+  // Trainings-Tab ueblich chronologisch, hier aber bewusst umgekehrt, damit die aktuellsten
+  // Ergebnisse beim Oeffnen sofort sichtbar sind, ohne erst nach rechts scrollen zu muessen).
+  const pastTrainingsSorted = trainings
+    .filter((t) => pastTrainingIds.has(t.id))
+    .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))
+    .map((t) => ({ id: t.id, date: t.date, time: t.time }));
 
   res.json({
     trainingCount,
     pastTrainingCount,
+    pastTrainings: pastTrainingsSorted,
     rows,
     seasonName: activeSeason ? activeSeason.name : null,
   });

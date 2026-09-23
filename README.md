@@ -252,12 +252,15 @@ und dafür nicht durch Bot-Schutz blockiert.
   die für die Selbst-Abstimmung der Spieler gilt. Praktisch, wenn jemand kurzfristig telefonisch
   absagt/zusagt, nachdem die Abstimmung schon geschlossen ist, oder um rückwirkend etwas zu
   korrigieren.
-- Statistik-Ansicht zeigt pro (registriertem) Spieler die Anzahl Zusagen/Vielleicht/Absagen/Offen
-  sowie die Zusage-Quote in Prozent — **alle Spalten beziehen sich dabei einheitlich nur auf die
-  bereits stattgefundenen Trainings dieser Saison** (nicht auf zukünftige, noch bevorstehende),
-  damit sich Quote und Zusagen-Zahl immer direkt gegeneinander nachrechnen lassen. Standardmäßig
-  nur für die aktuelle Saison, per Dropdown auch für andere Saisonen oder alle zusammen wählbar
-  (siehe eigener Abschnitt "Saisonen" oben).
+- Statistik-Ansicht zeigt pro (registriertem) Spieler die Teilnahme (Zusagen-Anzahl + Quote in
+  Prozent), sortiert nach Teilnahme absteigend, sowie eine horizontal scrollbare **Tag-für-Tag-
+  Matrix**: eine Spalte pro bereits stattgefundenem Training (neuestes zuerst) mit Symbol
+  (👍 Zusage, ❓ Vielleicht, 👎 Absage, ○ keine Antwort) — so lässt sich auf einen Blick erkennen,
+  *welche* konkreten Trainings ein Spieler verpasst hat, nicht nur wie viele insgesamt. **Alle
+  Werte beziehen sich einheitlich nur auf die bereits stattgefundenen Trainings dieser Saison**
+  (nicht auf zukünftige, noch bevorstehende), damit sich Quote und Zusagen-Zahl immer direkt
+  gegeneinander nachrechnen lassen. Standardmäßig nur für die aktuelle Saison, per Dropdown auch
+  für andere Saisonen oder alle zusammen wählbar (siehe eigener Abschnitt "Saisonen" oben).
 - Trainer können weitere Spieler zu Trainern machen/die Rolle entziehen, und **Spieler auch
   komplett löschen** — z. B. bei einem vergessenen Passwort (der Spieler kann sich danach mit
   derselben oder einer neuen E-Mail neu registrieren) oder wenn jemand den Verein verlässt. Ein

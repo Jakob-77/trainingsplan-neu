@@ -109,6 +109,11 @@ th{color:var(--ink-soft);font-weight:600;font-size:12px;text-transform:uppercase
 tr:last-child td{border-bottom:none;}
 .table-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -4px;}
 .table-scroll table{min-width:480px;}
+.stats-summary-bar{background:var(--bg);border-radius:8px;padding:10px 14px;font-size:14px;margin:6px 0 14px;}
+.matrix-table th, .matrix-table td{white-space:nowrap;}
+.matrix-icon{font-size:15px;}
+.matrix-icon.icon-yes{filter:saturate(1.3);}
+.matrix-icon.icon-none{opacity:.4;font-size:13px;}
 .whoami{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--grass-dark);color:#fff;padding:8px 24px;font-size:13px;flex-wrap:wrap;}
 .whoami b{font-weight:700;}
 .whoami button{background:transparent;border:1px solid rgba(255,255,255,.5);color:#fff;padding:4px 10px;font-size:12px;}

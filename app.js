@@ -748,6 +748,13 @@
 
   // ---------- Statistik ----------
 
+  function statusIcon(status) {
+    if (status === "zusage") return '<span class="matrix-icon icon-yes">👍</span>';
+    if (status === "vielleicht") return '<span class="matrix-icon icon-maybe">❓</span>';
+    if (status === "absage") return '<span class="matrix-icon icon-no">👎</span>';
+    return '<span class="matrix-icon icon-none">○</span>'; // keine Antwort gegeben
+  }
+
   function renderStats() {
     const seasonOptions = `
       <option value="current" ${state.statsSeasonId === "current" ? "selected" : ""}>Aktuelle Saison</option>
@@ -767,26 +774,35 @@
     const seasonLabel = state.statsSeasonId === "current"
       ? (state.stats.seasonName ? `Saison "${escapeHtml(state.stats.seasonName)}"` : "keine aktive Saison hinterlegt, zeigt alle Trainings")
       : state.statsSeasonId === "all" ? "alle Saisonen" : `Saison "${escapeHtml(state.stats.seasonName || "")}"`;
+
+    const dateHeaders = state.stats.pastTrainings.map((t) => {
+      const d = new Date(`${t.date}T00:00:00`);
+      return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    });
+
     return seasonPicker + `
       <div class="card">
         <h2>Trainingsbeteiligung — ${seasonLabel}</h2>
-        <p class="muted" style="margin-top:-8px;">Bezieht sich auf die ${state.stats.pastTrainingCount} bereits stattgefundenen Trainings dieser Saison (von ${state.stats.trainingCount} insgesamt geplanten).</p>
+        <div class="stats-summary-bar"><b>${state.stats.pastTrainingCount}</b> Trainings bereits stattgefunden${state.stats.trainingCount > state.stats.pastTrainingCount ? ` <span class="muted">(von ${state.stats.trainingCount} insgesamt geplant)</span>` : ""}</div>
         <div class="table-scroll">
-          <table>
-            <thead><tr><th>Spieler</th><th>Zusagen</th><th>Quote*</th><th>Vielleicht</th><th>Absagen</th><th>Offen</th></tr></thead>
+          <table class="matrix-table">
+            <thead>
+              <tr>
+                <th>Spieler</th>
+                <th>Teilnahme</th>
+                ${dateHeaders.map((d) => `<th style="text-align:center;">${d}</th>`).join("")}
+              </tr>
+            </thead>
             <tbody>
               ${state.stats.rows.map((r) => `<tr>
                 <td>${escapeHtml(r.name)}</td>
-                <td>${r.zusagen}</td>
-                <td>${r.quote}%</td>
-                <td>${r.vielleicht}</td>
-                <td>${r.absagen}</td>
-                <td>${r.offen}</td>
+                <td>${r.zusagen} <span class="muted">(${r.quote}%)</span></td>
+                ${state.stats.pastTrainings.map((t) => `<td style="text-align:center;">${statusIcon(r.byTraining[t.id])}</td>`).join("")}
               </tr>`).join("")}
             </tbody>
           </table>
         </div>
-        <p class="muted" style="margin-top:8px;font-size:11.5px;">*Jede Spalte bezieht sich nur auf die bereits stattgefundenen Trainings — Zusagen/Vielleicht/Absagen/Offen einer Zeile ergeben zusammen genau diese Anzahl. Zukünftige, noch bevorstehende Trainings zählen hier bewusst nicht mit (die sieht man im Trainings-Tab).</p>
+        <p class="muted" style="margin-top:8px;font-size:11.5px;">👍 Zusage · ❓ Vielleicht · 👎 Absage · ○ keine Antwort gegeben. Jede Spalte rechts ist ein einzelnes, bereits stattgefundenes Training (neuestes zuerst) — nach rechts wischen/scrollen für weitere. "Teilnahme" zeigt Zusagen und Quote bezogen auf alle bisherigen Trainings dieser Saison.</p>
       </div>`;
   }
 
