@@ -254,11 +254,12 @@ und dafür nicht durch Bot-Schutz blockiert.
   korrigieren.
 - Statistik-Ansicht zeigt pro (registriertem) Spieler die Teilnahme (Zusagen-Anzahl + Quote in
   Prozent), sortiert nach Teilnahme absteigend, sowie eine horizontal scrollbare **Tag-für-Tag-
-  Matrix**: eine Spalte pro bereits stattgefundenem Training (neuestes zuerst) mit Symbol
-  (👍 Zusage, ❓ Vielleicht, 👎 Absage, ○ keine Antwort) — so lässt sich auf einen Blick erkennen,
-  *welche* konkreten Trainings ein Spieler verpasst hat, nicht nur wie viele insgesamt. **Alle
-  Werte beziehen sich einheitlich nur auf die bereits stattgefundenen Trainings dieser Saison**
-  (nicht auf zukünftige, noch bevorstehende), damit sich Quote und Zusagen-Zahl immer direkt
+  Matrix**: eine Spalte pro bereits stattgefundenem Training (neuestes zuerst, standardmäßig auf
+  die letzten 15 begrenzt, mit Button für die komplette Historie) mit Symbol (👍 Zusage,
+  ❓ Vielleicht, 👎 Absage, ○ keine Antwort) — so lässt sich auf einen Blick erkennen, *welche*
+  konkreten Trainings ein Spieler verpasst hat, nicht nur wie viele insgesamt. **Alle Werte
+  beziehen sich einheitlich nur auf die bereits stattgefundenen Trainings dieser Saison** (nicht
+  auf zukünftige, noch bevorstehende), damit sich Quote und Zusagen-Zahl immer direkt
   gegeneinander nachrechnen lassen. Standardmäßig nur für die aktuelle Saison, per Dropdown auch
   für andere Saisonen oder alle zusammen wählbar (siehe eigener Abschnitt "Saisonen" oben).
 - Trainer können weitere Spieler zu Trainern machen/die Rolle entziehen, und **Spieler auch
@@ -303,6 +304,38 @@ escaped (kein XSS), alle API-Endpunkte sind serverseitig korrekt gegen Trainer-R
 - Einfache Rate-Begrenzung beim Login (Schutz vor automatisiertem Passwort-Erraten — bei einer
   kleinen, wenig frequentierten Vereins-App ein geringes Risiko, aber möglich nachzurüsten)
 - Export der Statistik als CSV/Excel
+
+## Skalierungs-Check (50+ Trainings, ~50 Spieler pro Saison)
+
+Auf Wunsch getestet, wie sich die App bei einer vollen Saison mit vielen Trainings und Spielern
+verhält — mit synthetischen Testdaten simuliert und die tatsächliche Berechnungs-/Anzeigelogik
+durchgerechnet, nicht nur angenommen.
+
+**Zwei echte Lücken gefunden und behoben:**
+- **"Übersicht" wurde nicht invalidiert**: War eine Übersicht für ein Training geöffnet, während
+  in der Verwaltung währenddessen Gäste hinzugefügt/entfernt, ein Training bearbeitet oder eine
+  Rückmeldung für einen Spieler eingetragen wurde, zeigte die offene Übersicht danach veraltete
+  Namen/Zahlen. Jetzt wird sie bei jeder dieser Änderungen automatisch zum Neuladen markiert.
+- **Eigene Status-Pille blieb hängen**: Trug ein Trainer über die Verwaltung eine Rückmeldung für
+  sich selbst ein (statt über die normalen Zusage/Vielleicht/Absage-Knöpfe), aktualisierte sich
+  die eigene Anzeige im Trainings-Tab nicht mit. Jetzt korrekt synchronisiert.
+
+**Performance gemessen** (nicht nur behauptet): mit 200 Trainings × 50 Spielern × ca. 9.000
+Rückmeldungen (entspricht ungefähr 2 Jahren Betrieb) braucht der Trainings-Abruf rund 33 ms, die
+Statistik-Berechnung rund 3 ms — für Turso/Vercel im kostenlosen Rahmen unproblematisch.
+
+**Platzprobleme bei großen Listen behoben:**
+- Übersicht-Listen (Zusage/Vielleicht/Absage/Offen) bekommen ab 10+ Einträgen einen eigenen
+  Scroll-Rahmen statt die Karte endlos in die Länge zu ziehen.
+- Die Statistik-Matrix zeigt bei mehr als 15 bereits stattgefundenen Trainings standardmäßig nur
+  die letzten 15 Spalten (sonst müsste man sich bei 50 Trainings durch eine sehr breite Tabelle
+  wischen), mit einem Button, um bei Bedarf die komplette Historie einzublenden.
+- Die Spielerliste in der Verwaltung ist zusätzlich zum Aufklappen jetzt auch selbst auf eine
+  Höhe begrenzt und scrollt innerhalb der Karte, bleibt also auch bei 50+ Spielern kompakt.
+
+**Geprüft und für in Ordnung befunden:** Gastspieler tauchen nie im Rückmeldungs-Dropdown für
+registrierte Spieler auf (sauber getrennte Datenquellen), Serientermine- und JSON-Massenimport
+verhindern zuverlässig Duplikate auch bei vielen bestehenden Einträgen.
 
 ## Hinweis zum Test in dieser Umgebung
 

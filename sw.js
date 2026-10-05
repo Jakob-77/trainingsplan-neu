@@ -1,4 +1,4 @@
-const CACHE_NAME = "trainingsplaner-v10";
+const CACHE_NAME = "trainingsplaner-v11";
 const SHELL_FILES = [
   "/",
   "/style.css",

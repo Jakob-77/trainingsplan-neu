@@ -114,6 +114,8 @@ tr:last-child td{border-bottom:none;}
 .matrix-icon{font-size:15px;}
 .matrix-icon.icon-yes{filter:saturate(1.3);}
 .matrix-icon.icon-none{opacity:.4;font-size:13px;}
+.players-scroll{max-height:340px;overflow-y:auto;-webkit-overflow-scrolling:touch;border-top:1px solid var(--line);}
+.players-scroll .list-item:first-child{border-top:none;}
 .whoami{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--grass-dark);color:#fff;padding:8px 24px;font-size:13px;flex-wrap:wrap;}
 .whoami b{font-weight:700;}
 .whoami button{background:transparent;border:1px solid rgba(255,255,255,.5);color:#fff;padding:4px 10px;font-size:12px;}

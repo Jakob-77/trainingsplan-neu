@@ -50,6 +50,7 @@
     seasons: [],
     currentSeasonId: null, // von Server ermittelt: welche Saison "heute" gerade laeuft
     statsSeasonId: "current", // "current" | "all" | <id> - was in der Statistik ausgewaehlt ist
+    statsMatrixExpanded: false, // Tag-Matrix zeigt standardmaessig nur die letzten 15 Trainings (sonst bei 50+ zu breit)
     showPastMatches: false, // Spielplan in der Verwaltung: vergangene Spiele standardmaessig ausgeblendet
     matchesListOpen: false, // Spielplan-Liste startet eingeklappt, wie die Spielerliste
   };
@@ -586,12 +587,16 @@
   }
 
   function renderOverview(data) {
+    const listStyle = (count) =>
+      count > 10
+        ? "margin:6px 0 0;padding-left:18px;font-size:13.5px;max-height:200px;overflow-y:auto;"
+        : "margin:6px 0 0;padding-left:18px;font-size:13.5px;";
     const section = (key, label, cls, showReason) => {
       const items = data.groups[key];
       return `
         <div style="margin-top:10px;">
           <div><span class="pill ${cls}">${label}</span> <b>${items.length}</b></div>
-          ${items.length === 0 ? "" : `<ul style="margin:6px 0 0;padding-left:18px;font-size:13.5px;">
+          ${items.length === 0 ? "" : `<ul style="${listStyle(items.length)}">
             ${items.map((p) => `<li>${escapeHtml(p.name)}${showReason && p.reason ? ` — <span class="muted">${escapeHtml(p.reason)}</span>` : ""}</li>`).join("")}
           </ul>`}
         </div>`;
@@ -599,7 +604,7 @@
     const guestSection = data.guests && data.guests.length > 0 ? `
         <div style="margin-top:10px;">
           <div><span class="pill zusage">Gäste</span> <b>${data.guests.length}</b></div>
-          <ul style="margin:6px 0 0;padding-left:18px;font-size:13.5px;">
+          <ul style="${listStyle(data.guests.length)}">
             ${data.guests.map((g) => `<li>${escapeHtml(g.name)}</li>`).join("")}
           </ul>
         </div>` : "";
@@ -709,6 +714,28 @@
     return status === "zusage" ? "zusageCount" : status === "vielleicht" ? "vielleichtCount" : status === "absage" ? "absageCount" : null;
   }
 
+  // Nach einer Admin-Rueckmeldung (Verwaltung -> "Rueckmeldung fuer Spieler eintragen") den
+  // lokalen Stand konsistent halten:
+  // 1. Zaehler direkt aus der Server-Antwort uebernehmen (kein zweiter Request noetig).
+  // 2. Falls der Trainer dabei SEINE EIGENE Rueckmeldung gesetzt hat, muss auch die eigene
+  //    Status-Pille/Hervorhebung im Trainings-Tab mitziehen - sonst bleibt sie auf dem alten
+  //    Stand haengen, obwohl der neue Status schon gespeichert ist.
+  // 3. Eine gerade offene "Uebersicht" fuer dieses Training invalidieren, damit sie beim
+  //    naechsten Ansehen frisch nachgeladen wird statt veraltete Namen/Gruende zu zeigen.
+  function applyAdminRsvpResult(trainingId, playerId, status, reason, result) {
+    const trainingInState = state.trainings.find((x) => String(x.id) === String(trainingId));
+    if (trainingInState) {
+      trainingInState.zusageCount = result.zusageCount;
+      trainingInState.vielleichtCount = result.vielleichtCount;
+      trainingInState.absageCount = result.absageCount;
+      if (state.me && String(playerId) === String(state.me.id)) {
+        trainingInState.myStatus = status;
+        trainingInState.myReason = reason || null;
+      }
+    }
+    delete state.openOverview[trainingId];
+  }
+
   async function submitRsvp(trainingId, status, reason) {
     const t = state.trainings.find((x) => String(x.id) === String(trainingId));
     if (!t) return;
@@ -775,7 +802,12 @@
       ? (state.stats.seasonName ? `Saison "${escapeHtml(state.stats.seasonName)}"` : "keine aktive Saison hinterlegt, zeigt alle Trainings")
       : state.statsSeasonId === "all" ? "alle Saisonen" : `Saison "${escapeHtml(state.stats.seasonName || "")}"`;
 
-    const dateHeaders = state.stats.pastTrainings.map((t) => {
+    const MATRIX_LIMIT = 15;
+    const allPastTrainings = state.stats.pastTrainings; // vom Server bereits neuestes zuerst sortiert
+    const visibleTrainings = state.statsMatrixExpanded ? allPastTrainings : allPastTrainings.slice(0, MATRIX_LIMIT);
+    const hasMore = allPastTrainings.length > MATRIX_LIMIT;
+
+    const dateHeaders = visibleTrainings.map((t) => {
       const d = new Date(`${t.date}T00:00:00`);
       return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
     });
@@ -784,6 +816,7 @@
       <div class="card">
         <h2>Trainingsbeteiligung — ${seasonLabel}</h2>
         <div class="stats-summary-bar"><b>${state.stats.pastTrainingCount}</b> Trainings bereits stattgefunden${state.stats.trainingCount > state.stats.pastTrainingCount ? ` <span class="muted">(von ${state.stats.trainingCount} insgesamt geplant)</span>` : ""}</div>
+        ${hasMore ? `<p class="muted" style="font-size:12px;margin:-4px 0 8px;">Matrix zeigt die letzten ${MATRIX_LIMIT} von ${allPastTrainings.length} Trainings${state.statsMatrixExpanded ? " (alle angezeigt)" : ""}.</p>` : ""}
         <div class="table-scroll">
           <table class="matrix-table">
             <thead>
@@ -797,16 +830,25 @@
               ${state.stats.rows.map((r) => `<tr>
                 <td>${escapeHtml(r.name)}</td>
                 <td>${r.zusagen} <span class="muted">(${r.quote}%)</span></td>
-                ${state.stats.pastTrainings.map((t) => `<td style="text-align:center;">${statusIcon(r.byTraining[t.id])}</td>`).join("")}
+                ${visibleTrainings.map((t) => `<td style="text-align:center;">${statusIcon(r.byTraining[t.id])}</td>`).join("")}
               </tr>`).join("")}
             </tbody>
           </table>
         </div>
-        <p class="muted" style="margin-top:8px;font-size:11.5px;">👍 Zusage · ❓ Vielleicht · 👎 Absage · ○ keine Antwort gegeben. Jede Spalte rechts ist ein einzelnes, bereits stattgefundenes Training (neuestes zuerst) — nach rechts wischen/scrollen für weitere. "Teilnahme" zeigt Zusagen und Quote bezogen auf alle bisherigen Trainings dieser Saison.</p>
+        ${hasMore ? `<div style="margin-top:10px;"><button class="small secondary" id="btn-toggle-matrix">${state.statsMatrixExpanded ? `Nur die letzten ${MATRIX_LIMIT} Trainings zeigen` : `Alle ${allPastTrainings.length} Trainings anzeigen`}</button></div>` : ""}
+        <p class="muted" style="margin-top:8px;font-size:11.5px;">👍 Zusage · ❓ Vielleicht · 👎 Absage · ○ keine Antwort gegeben. Jede Spalte rechts ist ein einzelnes, bereits stattgefundenes Training (neuestes zuerst) — nach rechts wischen/scrollen für weitere. "Teilnahme" zeigt Zusagen und Quote bezogen auf alle bisherigen Trainings dieser Saison (nicht nur die sichtbaren Spalten).</p>
       </div>`;
   }
 
   function bindStats() {
+    const toggleMatrixBtn = document.getElementById("btn-toggle-matrix");
+    if (toggleMatrixBtn) {
+      toggleMatrixBtn.onclick = () => {
+        state.statsMatrixExpanded = !state.statsMatrixExpanded;
+        render();
+      };
+    }
+
     const select = document.getElementById("stats-season-select");
     if (select) {
       select.onchange = async () => {
@@ -1090,6 +1132,7 @@
         ${state.playersListOpen ? `
           <p class="muted">Passwort vergessen? Spieler hier löschen — er/sie kann sich danach mit derselben oder einer neuen E-Mail neu registrieren.</p>
           <input type="text" id="players-filter" placeholder="Spieler suchen …" value="${escapeHtml(state.playersFilter || "")}" style="margin-bottom:10px;">
+          <div class="players-scroll">
           ${state.players
             .filter((p) => !state.playersFilter || p.name.toLowerCase().includes(state.playersFilter.toLowerCase()))
             .map((p) => `
@@ -1100,6 +1143,7 @@
               ${p.id !== state.me.id ? `<button class="small secondary btn-delete-player" data-player-id="${p.id}" data-player-name="${escapeHtml(p.name)}">Löschen</button>` : ""}
             </span>
           </div>`).join("")}
+          </div>
         ` : ""}
       </div>`;
   }
@@ -1475,6 +1519,7 @@
         try {
           await api(`/trainings/${id}`, { method: "PUT", body: { date, time, ort, note } });
           state.editingTrainingId = null;
+          delete state.openOverview[id]; // Termin/Ort geaendert - eine offene Uebersicht muss frisch geladen werden
           await loadTrainings();
           render();
         } catch (e) {
@@ -1499,6 +1544,7 @@
         }
         try {
           await api(`/trainings/${id}/guests`, { method: "POST", body: { name } });
+          delete state.openOverview[id]; // neuer Gast - eine offene Uebersicht muss ihn mit anzeigen
           await loadTrainings();
           render();
         } catch (e) {
@@ -1516,6 +1562,7 @@
         const id = card.getAttribute("data-admin-id");
         try {
           await api(`/trainings/${id}/guests/${guestId}`, { method: "DELETE" });
+          delete state.openOverview[id]; // Gast entfernt - eine offene Uebersicht darf ihn nicht mehr zeigen
           await loadTrainings();
           render();
         } catch (e) {
@@ -1545,14 +1592,7 @@
           try {
             const result = await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: "zusage", reason: "" } });
             state.adminRsvpFeedback[id] = `Gespeichert: ${select.options[select.selectedIndex].text} → Zusage.`;
-            // Zaehler direkt aus der Antwort uebernehmen - kein zweiter Request noetig, damit
-            // die Schnellansicht (👍/❓/👎) im Trainings-Tab sofort stimmt, ohne langsamer zu werden.
-            const trainingInState = state.trainings.find((x) => String(x.id) === String(id));
-            if (trainingInState) {
-              trainingInState.zusageCount = result.zusageCount;
-              trainingInState.vielleichtCount = result.vielleichtCount;
-              trainingInState.absageCount = result.absageCount;
-            }
+            applyAdminRsvpResult(id, playerId, "zusage", "", result);
             render();
           } catch (e) {
             errBox.textContent = e.message;
@@ -1588,12 +1628,7 @@
           const playerLabel = select.options[select.selectedIndex].text;
           const result = await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: pending, reason: text } });
           state.adminRsvpFeedback[id] = `Gespeichert: ${playerLabel} → ${statusLabel(pending)}.`;
-          const trainingInState = state.trainings.find((x) => String(x.id) === String(id));
-          if (trainingInState) {
-            trainingInState.zusageCount = result.zusageCount;
-            trainingInState.vielleichtCount = result.vielleichtCount;
-            trainingInState.absageCount = result.absageCount;
-          }
+          applyAdminRsvpResult(id, playerId, pending, text, result);
           render();
         } catch (e) {
           errBox.textContent = e.message;
