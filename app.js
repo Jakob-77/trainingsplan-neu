@@ -157,6 +157,71 @@
     });
   }, 30000);
 
+  // Offene "Uebersicht"-Aufklapper werden bei jeder anderen Aktion (eigene Abstimmung,
+  // Tab-Wechsel, Wochenwechsel) wieder geschlossen. So zeigt sie nie einen veralteten Stand,
+  // sondern wird beim naechsten Oeffnen frisch vom Server geladen.
+  function closeAllOverviews() {
+    state.openOverview = {};
+  }
+
+  // ---------- Automatisches Nachladen (Zusagen anderer Spieler sichtbar machen) ----------
+  // Aktualisiert Daumen-Zaehler und offene Uebersichten im Hintergrund:
+  // - alle 45 Sekunden, solange die App sichtbar ist und der Trainings-Tab offen ist
+  // - sofort, wenn die App aus dem Hintergrund zurueckkommt oder man zum Trainings-Tab wechselt
+  // Es wird NICHT nachgeladen, waehrend jemand tippt oder gerade eine eigene Abstimmung laeuft -
+  // so gehen Texteingaben (Absage-Grund) nie verloren und der eigene Status wird nicht ueberschrieben.
+  const AUTO_REFRESH_MS = 45000;
+  let rsvpInFlight = 0;
+  let rsvpVersion = 0;
+  let refreshRunning = false;
+  let lastRefreshAt = 0;
+
+  function userIsTyping() {
+    const el = document.activeElement;
+    const inField = !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
+    return inField || Object.keys(state.reasonBoxOpen).length > 0;
+  }
+
+  async function refreshTrainingsSilently(minGapMs) {
+    if (refreshRunning || rsvpInFlight > 0) return;
+    if (!state.me || state.loading || state.view !== "home") return;
+    if (document.visibilityState === "hidden" || userIsTyping()) return;
+    if (minGapMs && Date.now() - lastRefreshAt < minGapMs) return;
+    refreshRunning = true;
+    const versionAtStart = rsvpVersion;
+    try {
+      const data = await api("/trainings");
+      const ids = Object.keys(state.openOverview);
+      const fresh = {};
+      await Promise.all(ids.map(async (id) => {
+        try { fresh[id] = await api(`/trainings/${id}/overview`); } catch (e) { /* alte Uebersicht behalten */ }
+      }));
+      // Waehrend der Anfrage hat sich etwas getan -> Ergebnis verwerfen (naechster Durchlauf holt es nach)
+      if (rsvpInFlight > 0 || versionAtStart !== rsvpVersion) return;
+      if (!state.me || state.loading || state.view !== "home" || userIsTyping()) return;
+
+      lastRefreshAt = Date.now();
+      let changed = JSON.stringify(state.trainings) !== JSON.stringify(data.trainings);
+      state.trainings = data.trainings;
+      Object.keys(fresh).forEach((id) => {
+        if (!state.openOverview[id]) return; // wurde inzwischen geschlossen
+        if (JSON.stringify(state.openOverview[id]) !== JSON.stringify(fresh[id])) changed = true;
+        state.openOverview[id] = fresh[id];
+      });
+      if (changed) render();
+    } catch (e) {
+      // Kurzzeitig offline oder Sitzung abgelaufen - nichts anzeigen, naechster Versuch folgt
+    } finally {
+      refreshRunning = false;
+    }
+  }
+
+  setInterval(() => refreshTrainingsSilently(), AUTO_REFRESH_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") refreshTrainingsSilently(5000);
+  });
+  window.addEventListener("pageshow", () => refreshTrainingsSilently(5000));
+
   async function api(path, opts) {
     const res = await fetch("/api" + path, {
       method: (opts && opts.method) || "GET",
@@ -416,14 +481,16 @@
   }
 
   function bindMain() {
-    document.getElementById("nav-home").onclick = () => { state.view = "home"; render(); };
+    document.getElementById("nav-home").onclick = () => { closeAllOverviews(); state.view = "home"; render(); refreshTrainingsSilently(); };
     document.getElementById("nav-stats").onclick = async () => {
+      closeAllOverviews();
       state.view = "stats"; state.loading = true; render();
       if (state.seasons.length === 0) await loadSeasons();
       await loadStats(); state.loading = false; render();
     };
     const navAdmin = document.getElementById("nav-admin");
     if (navAdmin) navAdmin.onclick = async () => {
+      closeAllOverviews();
       state.view = "admin"; state.loading = true; render();
       await loadPlayers();
       if (state.matches.length === 0) await loadMatches();
@@ -450,14 +517,17 @@
 
   function bindWeekNav(afterChange) {
     document.getElementById("week-prev").onclick = () => {
+      closeAllOverviews();
       state.weekStart = addDays(state.weekStart, -7);
       afterChange();
     };
     document.getElementById("week-next").onclick = () => {
+      closeAllOverviews();
       state.weekStart = addDays(state.weekStart, 7);
       afterChange();
     };
     document.getElementById("week-today").onclick = () => {
+      closeAllOverviews();
       state.weekStart = startOfWeek(new Date());
       afterChange();
     };
@@ -757,10 +827,14 @@
 
     t.myStatus = status;
     t.myReason = reason || null;
+    closeAllOverviews(); // Uebersicht wuerde sonst den alten Stand zeigen
     render();
 
+    rsvpInFlight++;
+    rsvpVersion++;
     try {
       await api(`/trainings/${trainingId}/rsvp`, { method: "POST", body: { status, reason } });
+      rsvpVersion++;
     } catch (e) {
       // Fehlgeschlagen - alten Stand wiederherstellen (inkl. Zaehler)
       t.myStatus = previous.myStatus;
@@ -770,6 +844,9 @@
       t.absageCount = previous.absageCount;
       render();
       alert(e.message);
+    } finally {
+      rsvpInFlight--;
+      rsvpVersion++;
     }
   }
 
