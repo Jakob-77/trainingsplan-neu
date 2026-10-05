@@ -41,6 +41,8 @@
     reasonBoxOpen: {}, // trainingId -> true, waehrend eine Notiz/ein Grund gerade eingegeben wird
     reasonPendingStatus: {}, // trainingId -> "vielleicht"|"absage", waehrend diese Box offen ist (leer = Zusage-Notiz)
     matches: [],       // Spielplan (manuell gepflegt), rein informativ - App laeuft auch ohne
+    reasonsTrainerOnly: false, // global: Gruende bei Vielleicht/Absage nur fuer Trainer sichtbar
+    adminSection: "trainings", // Unterbereich der Verwaltung: trainings | spielplan | spieler | optionen
     showMatchBanner: true, // vom Server geladene Einstellung - Trainer koennen die Spielvorschau ausblenden
     playersListOpen: false, // Spielerliste in der Verwaltung ist bei vielen Spielern lang - eingeklappt starten
     playersFilter: "",
@@ -352,6 +354,7 @@
     try {
       const data = await api("/settings");
       state.showMatchBanner = data.showMatchBanner;
+      state.reasonsTrainerOnly = !!data.reasonsTrainerOnly;
     } catch (e) {
       state.showMatchBanner = true; // im Zweifel anzeigen
     }
@@ -952,41 +955,132 @@
     const otherSeasons = state.seasons.filter((s) => s.id !== state.currentSeasonId);
 
     return `
-      <div class="card">
-        <h2>Saison</h2>
-        <p class="muted">Trainings/Spiele werden automatisch anhand ihres Datums der passenden Saison zugerechnet. Die Statistik startet dadurch mit jeder neuen Saison von selbst wieder bei null.</p>
-        ${currentSeason
-          ? `<p>Aktuell läuft: <b>${escapeHtml(currentSeason.name)}</b> (${fmtDate(currentSeason.startDate)} – ${fmtDate(currentSeason.endDate)})</p>`
-          : `<p class="muted">Gerade ist keine Saison als "aktuell" hinterlegt (z. B. zwischen zwei Saisonen). Statistik zeigt in dem Fall automatisch alle Trainings.</p>`}
-        ${otherSeasons.length > 0 ? `
-          <details style="margin:8px 0;">
-            <summary class="muted" style="cursor:pointer;">${otherSeasons.length} weitere Saison${otherSeasons.length === 1 ? "" : "en"} anzeigen</summary>
-            ${otherSeasons.map((s) => `
-              <div class="list-item">
-                <span>${escapeHtml(s.name)} <span class="muted">(${fmtDate(s.startDate)} – ${fmtDate(s.endDate)})</span></span>
-                <button class="small secondary btn-delete-season" data-season-id="${s.id}">Löschen</button>
-              </div>`).join("")}
-          </details>` : ""}
-        <label style="margin-top:10px;">Neue Saison anlegen</label>
-        <input type="text" id="season-name" placeholder="z. B. Herbstsaison 2026" value="${escapeHtml(suggestSeasonName())}">
-        <div class="row">
-          <div><label>Von</label><input type="date" id="season-start" value="${suggestSeasonRange().start}"></div>
-          <div><label>Bis</label><input type="date" id="season-end" value="${suggestSeasonRange().end}"></div>
-        </div>
-        <div id="season-error" class="error"></div>
-        <div style="margin-top:10px;"><button class="small" id="btn-add-season">Saison anlegen</button></div>
+      <div class="tabs admin-tabs">
+          <button class="${state.adminSection === "trainings" ? "" : "secondary"}" data-admin-section="trainings">Trainings</button>
+          <button class="${state.adminSection === "spielplan" ? "" : "secondary"}" data-admin-section="spielplan">Spielplan</button>
+          <button class="${state.adminSection === "spieler" ? "" : "secondary"}" data-admin-section="spieler">Spieler</button>
+          <button class="${state.adminSection === "optionen" ? "" : "secondary"}" data-admin-section="optionen">Optionen</button>
       </div>
 
+      <div class="admin-section" data-section="trainings" ${state.adminSection === "trainings" ? "" : "hidden"}>
+      <div class="card">
+        <h2>Trainings verwalten &amp; Gastspieler eintragen</h2>
+        ${renderWeekNav()}
+        ${state.trainings.length === 0 ? '<p class="empty">Noch keine Trainings.</p>' : visible.length === 0 ? '<p class="empty">Keine Trainings in dieser Woche.</p>' : visible.map((t) => {
+          const guests = t.guests || [];
+          const isEditing = state.editingTrainingId === t.id;
+          return `
+          <div class="training" data-admin-id="${t.id}">
+            ${isEditing ? `
+            <div class="row">
+              <div><label>Datum</label><input type="date" class="edit-date" value="${t.date}"></div>
+              <div><label>Uhrzeit</label><input type="time" class="edit-time" value="${t.time}"></div>
+            </div>
+            <label>Ort</label>
+            <input type="text" class="edit-ort" value="${escapeHtml(t.ort || "")}">
+            <label>Hinweis (optional)</label>
+            <input type="text" class="edit-note" value="${escapeHtml(t.note || "")}">
+            <div class="error edit-error" style="display:none;"></div>
+            <div class="row" style="margin-top:8px;">
+              <button class="small btn-save-training" style="flex:0 0 auto;">Speichern</button>
+              <button class="small secondary btn-cancel-edit-training" style="flex:0 0 auto;">Abbrechen</button>
+            </div>
+            ` : `
+            <div class="head">
+              <div>
+                <div class="when">${fmtDate(t.date)} · ${t.time} Uhr</div>
+                <div class="where">${escapeHtml(t.ort || "")}</div>
+                ${t.note ? `<div class="muted" style="margin-top:4px;">${escapeHtml(t.note)}</div>` : ""}
+              </div>
+              <span class="row" style="max-width:200px;">
+                <button class="small secondary btn-edit-training">Bearbeiten</button>
+                <button class="small secondary btn-delete-training">Löschen</button>
+              </span>
+            </div>
+            <label style="margin-top:10px;">Gastspieler für dieses Training hinzufügen</label>
+            <div class="row">
+              <input type="text" class="guest-name-input" placeholder="Name des Gastspielers">
+              <button class="small btn-add-guest" style="flex:0 0 auto;">Hinzufügen</button>
+            </div>
+            <div class="guest-error error" style="display:none;"></div>
+            ${guests.length > 0 ? `
+            <div style="margin-top:8px;">
+              ${guests.map((g) => `<span class="pill zusage" style="margin:2px 4px 2px 0;">${escapeHtml(g.name)} <a href="#" class="guest-remove" data-guest-id="${g.id}" style="color:inherit;text-decoration:none;">✕</a></span>`).join("")}
+            </div>` : `<p class="muted" style="margin-top:8px;">Noch keine Gastspieler für dieses Training.</p>`}
+
+            <label style="margin-top:14px;">Rückmeldung für einen Spieler eintragen/ändern</label>
+            <p class="muted" style="font-size:11.5px;margin:2px 0 6px;">Z. B. wenn die Abstimmfrist (1 Std. vor Trainingsbeginn) schon vorbei ist, oder um rückwirkend etwas einzutragen.</p>
+            <select class="admin-rsvp-player">
+              <option value="">– Spieler wählen –</option>
+              ${state.players.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
+            </select>
+            <div class="rsvp-buttons admin-rsvp-buttons" style="margin-top:8px;">
+              <button data-status="zusage" class="inactive">Zusage</button>
+              <button data-status="vielleicht" class="inactive">Vielleicht</button>
+              <button data-status="absage" class="inactive">Absage</button>
+            </div>
+            <div class="admin-rsvp-reason-box" style="display:none;margin-top:8px;">
+              <textarea class="admin-rsvp-reason-input" placeholder="Grund (Pflichtfeld bei Vielleicht/Absage)"></textarea>
+              <div class="error admin-rsvp-reason-error" style="display:none;">Bitte einen Grund angeben.</div>
+              <div style="margin-top:6px;"><button class="small admin-rsvp-save">Speichern</button></div>
+            </div>
+            <div class="admin-rsvp-error error" style="display:none;"></div>
+            <div class="admin-rsvp-status muted" style="margin-top:4px;font-size:12px;">${escapeHtml(state.adminRsvpFeedback[t.id] || "")}</div>
+            `}
+          </div>`;
+        }).join("")}
+      </div>
+
+      <div class="card">
+        <h2>Neues Training anlegen</h2>
+        <div class="row">
+          <div><label>Datum</label><input type="date" id="new-date"></div>
+          <div><label>Uhrzeit</label><input type="time" id="new-time" value="19:00"></div>
+        </div>
+        <label>Ort</label>
+        <input type="text" id="new-ort" placeholder="z. B. Sportplatz Hauptplatz 1">
+        <label>Hinweis (optional)</label>
+        <input type="text" id="new-note" placeholder="z. B. Balldienst: Max &amp; Julia, Zusatztraining …">
+        <div id="new-error" class="error"></div>
+        <div style="margin-top:12px;"><button id="btn-add-training">Training anlegen</button></div>
+      </div>
+
+      <div class="card">
+        <h2>Serientermine anlegen</h2>
+        <p class="muted">Legt für jeden ausgewählten Wochentag im gewählten Zeitraum automatisch ein Training an — praktisch für eine ganze Saison auf einmal.</p>
+        <label>Wochentage</label>
+        <div class="weekday-checks">
+          <label><input type="checkbox" id="series-mo" checked> Mo</label>
+          <label><input type="checkbox" id="series-di" checked> Di</label>
+          <label><input type="checkbox" id="series-mi"> Mi</label>
+          <label><input type="checkbox" id="series-do" checked> Do</label>
+          <label><input type="checkbox" id="series-fr"> Fr</label>
+          <label><input type="checkbox" id="series-sa"> Sa</label>
+          <label><input type="checkbox" id="series-so"> So</label>
+        </div>
+        <div class="row">
+          <div><label>Uhrzeit</label><input type="time" id="series-time" value="19:00"></div>
+          <div><label>Ort</label><input type="text" id="series-ort" placeholder="z. B. Sportplatz Hauptplatz 1"></div>
+        </div>
+        <label>Hinweis (optional)</label>
+        <input type="text" id="series-note" placeholder="z. B. Sommer-Trainingsblock">
+        <div class="row">
+          <div><label>Von</label><input type="date" id="series-start"></div>
+          <div><label>Bis</label><input type="date" id="series-end"></div>
+        </div>
+        <div id="series-error" class="error"></div>
+        <div id="series-status" class="info"></div>
+        <div style="margin-top:12px;"><button id="btn-create-series">Serientermine erstellen</button></div>
+      </div>
+      </div>
+
+      <div class="admin-section" data-section="spielplan" ${state.adminSection === "spielplan" ? "" : "hidden"}>
       <div class="card">
         <div class="top-bar">
           <h2 style="margin:0;">Spielplan (${upcomingMatches.length} bevorstehend)</h2>
           <button class="small secondary" id="btn-toggle-matches-list">${state.matchesListOpen ? "Ausblenden" : "Anzeigen"}</button>
         </div>
         <p class="muted">Das zeitlich nächste Spiel wird automatisch oben im Trainingsplan als Banner angezeigt.</p>
-        <label class="switch-row">
-          <input type="checkbox" id="toggle-match-banner" ${state.showMatchBanner ? "checked" : ""}>
-          Spielvorschau im Trainingsplan anzeigen
-        </label>
 
         ${state.matchesListOpen ? `
         ${matchesToShow.length === 0 ? `<p class="empty">${state.showPastMatches ? "Noch keine Spiele eingetragen." : "Keine bevorstehenden Spiele eingetragen."}</p>` : matchesToShow.map((m) => {
@@ -1090,117 +1184,9 @@
           <button id="btn-save-next-match" style="flex:0 0 auto;">Spiel hinzufügen</button>
         </div>
       </div>
-
-      <div class="card">
-        <h2>Neues Training anlegen</h2>
-        <div class="row">
-          <div><label>Datum</label><input type="date" id="new-date"></div>
-          <div><label>Uhrzeit</label><input type="time" id="new-time" value="19:00"></div>
-        </div>
-        <label>Ort</label>
-        <input type="text" id="new-ort" placeholder="z. B. Sportplatz Hauptplatz 1">
-        <label>Hinweis (optional)</label>
-        <input type="text" id="new-note" placeholder="z. B. Balldienst: Max &amp; Julia, Zusatztraining …">
-        <div id="new-error" class="error"></div>
-        <div style="margin-top:12px;"><button id="btn-add-training">Training anlegen</button></div>
       </div>
 
-      <div class="card">
-        <h2>Serientermine anlegen</h2>
-        <p class="muted">Legt für jeden ausgewählten Wochentag im gewählten Zeitraum automatisch ein Training an — praktisch für eine ganze Saison auf einmal.</p>
-        <label>Wochentage</label>
-        <div class="weekday-checks">
-          <label><input type="checkbox" id="series-mo" checked> Mo</label>
-          <label><input type="checkbox" id="series-di" checked> Di</label>
-          <label><input type="checkbox" id="series-mi"> Mi</label>
-          <label><input type="checkbox" id="series-do" checked> Do</label>
-          <label><input type="checkbox" id="series-fr"> Fr</label>
-          <label><input type="checkbox" id="series-sa"> Sa</label>
-          <label><input type="checkbox" id="series-so"> So</label>
-        </div>
-        <div class="row">
-          <div><label>Uhrzeit</label><input type="time" id="series-time" value="19:00"></div>
-          <div><label>Ort</label><input type="text" id="series-ort" placeholder="z. B. Sportplatz Hauptplatz 1"></div>
-        </div>
-        <label>Hinweis (optional)</label>
-        <input type="text" id="series-note" placeholder="z. B. Sommer-Trainingsblock">
-        <div class="row">
-          <div><label>Von</label><input type="date" id="series-start"></div>
-          <div><label>Bis</label><input type="date" id="series-end"></div>
-        </div>
-        <div id="series-error" class="error"></div>
-        <div id="series-status" class="info"></div>
-        <div style="margin-top:12px;"><button id="btn-create-series">Serientermine erstellen</button></div>
-      </div>
-
-      <div class="card">
-        <h2>Trainings verwalten &amp; Gastspieler eintragen</h2>
-        ${renderWeekNav()}
-        ${state.trainings.length === 0 ? '<p class="empty">Noch keine Trainings.</p>' : visible.length === 0 ? '<p class="empty">Keine Trainings in dieser Woche.</p>' : visible.map((t) => {
-          const guests = t.guests || [];
-          const isEditing = state.editingTrainingId === t.id;
-          return `
-          <div class="training" data-admin-id="${t.id}">
-            ${isEditing ? `
-            <div class="row">
-              <div><label>Datum</label><input type="date" class="edit-date" value="${t.date}"></div>
-              <div><label>Uhrzeit</label><input type="time" class="edit-time" value="${t.time}"></div>
-            </div>
-            <label>Ort</label>
-            <input type="text" class="edit-ort" value="${escapeHtml(t.ort || "")}">
-            <label>Hinweis (optional)</label>
-            <input type="text" class="edit-note" value="${escapeHtml(t.note || "")}">
-            <div class="error edit-error" style="display:none;"></div>
-            <div class="row" style="margin-top:8px;">
-              <button class="small btn-save-training" style="flex:0 0 auto;">Speichern</button>
-              <button class="small secondary btn-cancel-edit-training" style="flex:0 0 auto;">Abbrechen</button>
-            </div>
-            ` : `
-            <div class="head">
-              <div>
-                <div class="when">${fmtDate(t.date)} · ${t.time} Uhr</div>
-                <div class="where">${escapeHtml(t.ort || "")}</div>
-                ${t.note ? `<div class="muted" style="margin-top:4px;">${escapeHtml(t.note)}</div>` : ""}
-              </div>
-              <span class="row" style="max-width:200px;">
-                <button class="small secondary btn-edit-training">Bearbeiten</button>
-                <button class="small secondary btn-delete-training">Löschen</button>
-              </span>
-            </div>
-            <label style="margin-top:10px;">Gastspieler für dieses Training hinzufügen</label>
-            <div class="row">
-              <input type="text" class="guest-name-input" placeholder="Name des Gastspielers">
-              <button class="small btn-add-guest" style="flex:0 0 auto;">Hinzufügen</button>
-            </div>
-            <div class="guest-error error" style="display:none;"></div>
-            ${guests.length > 0 ? `
-            <div style="margin-top:8px;">
-              ${guests.map((g) => `<span class="pill zusage" style="margin:2px 4px 2px 0;">${escapeHtml(g.name)} <a href="#" class="guest-remove" data-guest-id="${g.id}" style="color:inherit;text-decoration:none;">✕</a></span>`).join("")}
-            </div>` : `<p class="muted" style="margin-top:8px;">Noch keine Gastspieler für dieses Training.</p>`}
-
-            <label style="margin-top:14px;">Rückmeldung für einen Spieler eintragen/ändern</label>
-            <p class="muted" style="font-size:11.5px;margin:2px 0 6px;">Z. B. wenn die Abstimmfrist (1 Std. vor Trainingsbeginn) schon vorbei ist, oder um rückwirkend etwas einzutragen.</p>
-            <select class="admin-rsvp-player">
-              <option value="">– Spieler wählen –</option>
-              ${state.players.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
-            </select>
-            <div class="rsvp-buttons admin-rsvp-buttons" style="margin-top:8px;">
-              <button data-status="zusage" class="inactive">Zusage</button>
-              <button data-status="vielleicht" class="inactive">Vielleicht</button>
-              <button data-status="absage" class="inactive">Absage</button>
-            </div>
-            <div class="admin-rsvp-reason-box" style="display:none;margin-top:8px;">
-              <textarea class="admin-rsvp-reason-input" placeholder="Grund (Pflichtfeld bei Vielleicht/Absage)"></textarea>
-              <div class="error admin-rsvp-reason-error" style="display:none;">Bitte einen Grund angeben.</div>
-              <div style="margin-top:6px;"><button class="small admin-rsvp-save">Speichern</button></div>
-            </div>
-            <div class="admin-rsvp-error error" style="display:none;"></div>
-            <div class="admin-rsvp-status muted" style="margin-top:4px;font-size:12px;">${escapeHtml(state.adminRsvpFeedback[t.id] || "")}</div>
-            `}
-          </div>`;
-        }).join("")}
-      </div>
-
+      <div class="admin-section" data-section="spieler" ${state.adminSection === "spieler" ? "" : "hidden"}>
       <div class="card">
         <div class="top-bar">
           <h2 style="margin:0;">Spieler (${state.players.length})</h2>
@@ -1222,7 +1208,50 @@
           </div>`).join("")}
           </div>
         ` : ""}
-      </div>`;
+      </div>
+      </div>
+
+      <div class="admin-section" data-section="optionen" ${state.adminSection === "optionen" ? "" : "hidden"}>
+      <div class="card">
+        <h2>Sichtbarkeit</h2>
+        <p class="muted">Diese Schalter gelten für alle Trainings und alle Spieler.</p>
+        <label class="switch-row">
+          <input type="checkbox" id="toggle-reasons-trainer-only" ${state.reasonsTrainerOnly ? "checked" : ""}>
+          Gründe bei „Vielleicht“ und „Absage“ nur für Trainer sichtbar
+        </label>
+        <p class="muted" style="margin:-4px 0 8px 24px;font-size:12px;">Spieler sehen dann nur ihren eigenen Grund. Die Namen und Zähler bleiben für alle sichtbar.</p>
+        <label class="switch-row">
+          <input type="checkbox" id="toggle-match-banner" ${state.showMatchBanner ? "checked" : ""}>
+          Spielvorschau im Trainingsplan anzeigen
+        </label>
+      </div>
+
+      <div class="card">
+        <h2>Saison</h2>
+        <p class="muted">Trainings/Spiele werden automatisch anhand ihres Datums der passenden Saison zugerechnet. Die Statistik startet dadurch mit jeder neuen Saison von selbst wieder bei null.</p>
+        ${currentSeason
+          ? `<p>Aktuell läuft: <b>${escapeHtml(currentSeason.name)}</b> (${fmtDate(currentSeason.startDate)} – ${fmtDate(currentSeason.endDate)})</p>`
+          : `<p class="muted">Gerade ist keine Saison als "aktuell" hinterlegt (z. B. zwischen zwei Saisonen). Statistik zeigt in dem Fall automatisch alle Trainings.</p>`}
+        ${otherSeasons.length > 0 ? `
+          <details style="margin:8px 0;">
+            <summary class="muted" style="cursor:pointer;">${otherSeasons.length} weitere Saison${otherSeasons.length === 1 ? "" : "en"} anzeigen</summary>
+            ${otherSeasons.map((s) => `
+              <div class="list-item">
+                <span>${escapeHtml(s.name)} <span class="muted">(${fmtDate(s.startDate)} – ${fmtDate(s.endDate)})</span></span>
+                <button class="small secondary btn-delete-season" data-season-id="${s.id}">Löschen</button>
+              </div>`).join("")}
+          </details>` : ""}
+        <label style="margin-top:10px;">Neue Saison anlegen</label>
+        <input type="text" id="season-name" placeholder="z. B. Herbstsaison 2026" value="${escapeHtml(suggestSeasonName())}">
+        <div class="row">
+          <div><label>Von</label><input type="date" id="season-start" value="${suggestSeasonRange().start}"></div>
+          <div><label>Bis</label><input type="date" id="season-end" value="${suggestSeasonRange().end}"></div>
+        </div>
+        <div id="season-error" class="error"></div>
+        <div style="margin-top:10px;"><button class="small" id="btn-add-season">Saison anlegen</button></div>
+      </div>
+      </div>
+    `;
   }
 
   function bindAdmin() {
@@ -1272,6 +1301,30 @@
     if (toggleMatchesListBtn) {
       toggleMatchesListBtn.onclick = () => {
         state.matchesListOpen = !state.matchesListOpen;
+        render();
+      };
+    }
+
+    document.querySelectorAll("[data-admin-section]").forEach((btn) => {
+      btn.onclick = () => {
+        state.adminSection = btn.getAttribute("data-admin-section");
+        render();
+        window.scrollTo(0, 0);
+      };
+    });
+
+    const toggleReasonsCb = document.getElementById("toggle-reasons-trainer-only");
+    if (toggleReasonsCb) {
+      toggleReasonsCb.onchange = async () => {
+        const checked = toggleReasonsCb.checked;
+        state.reasonsTrainerOnly = checked; // optimistisch sofort uebernehmen
+        try {
+          await api("/settings", { method: "POST", body: { reasonsTrainerOnly: checked } });
+          closeAllOverviews(); // geoeffnete Uebersichten wuerden sonst noch den alten Stand zeigen
+        } catch (e) {
+          state.reasonsTrainerOnly = !checked; // bei Fehler zurueckdrehen
+          alert(e.message);
+        }
         render();
       };
     }

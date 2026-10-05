@@ -99,19 +99,36 @@ app.get("/api/me", async (req, res) => {
 
 // ---------- Einstellungen (z. B. Spielvorschau ein-/ausblendbar) ----------
 
+// Globale Schalter (gelten fuer alle Trainings):
+// - show_match_banner: Spielvorschau im Trainingsplan anzeigen (Standard: an)
+// - reasons_trainer_only: Gruende bei Vielleicht/Absage nur fuer Trainer sichtbar (Standard: aus)
+async function readSettings() {
+  const rows = await db.all("SELECT key, value FROM settings", []);
+  const map = {};
+  rows.forEach((r) => { map[r.key] = r.value; });
+  return {
+    showMatchBanner: map.show_match_banner === undefined ? true : map.show_match_banner === "1",
+    reasonsTrainerOnly: map.reasons_trainer_only === "1",
+  };
+}
+
+async function saveSetting(key, flag) {
+  await db.run(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [key, flag ? "1" : "0"]
+  );
+}
+
 app.get("/api/settings", requireLogin, async (req, res) => {
-  const row = await db.get("SELECT value FROM settings WHERE key = 'show_match_banner'", []);
-  const showMatchBanner = row ? row.value === "1" : true; // Standard: an
-  res.json({ showMatchBanner });
+  res.json(await readSettings());
 });
 
+// Es duerfen einzelne Schalter gesendet werden - nicht mitgeschickte bleiben unveraendert.
 app.post("/api/settings", requireLogin, requireAdmin, async (req, res) => {
-  const { showMatchBanner } = req.body || {};
-  await db.run(
-    `INSERT INTO settings (key, value) VALUES ('show_match_banner', ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [showMatchBanner ? "1" : "0"]
-  );
+  const { showMatchBanner, reasonsTrainerOnly } = req.body || {};
+  if (showMatchBanner !== undefined) await saveSetting("show_match_banner", !!showMatchBanner);
+  if (reasonsTrainerOnly !== undefined) await saveSetting("reasons_trainer_only", !!reasonsTrainerOnly);
   res.json({ ok: true });
 });
 
@@ -313,6 +330,13 @@ app.get("/api/trainings/:id/overview", requireLogin, async (req, res) => {
   const training = await db.get("SELECT id FROM trainings WHERE id = ?", [trainingId]);
   if (!training) return res.status(404).json({ error: "Training nicht gefunden." });
 
+  // Ist "Gruende nur fuer Trainer" aktiv, bekommen normale Spieler Gruende anderer gar nicht erst
+  // geliefert (nicht nur ausgeblendet) - den eigenen Grund sehen sie weiterhin.
+  const me = await db.get("SELECT is_admin FROM players WHERE id = ?", [req.playerId]);
+  const isAdmin = !!(me && me.is_admin);
+  const settings = await readSettings();
+  const hideOthersReasons = settings.reasonsTrainerOnly && !isAdmin;
+
   const players = await db.all("SELECT * FROM players ORDER BY name COLLATE NOCASE", []);
   const responses = await db.all("SELECT * FROM responses WHERE training_id = ?", [trainingId]);
   const guests = await db.all("SELECT * FROM training_guests WHERE training_id = ? ORDER BY name COLLATE NOCASE", [trainingId]);
@@ -323,7 +347,8 @@ app.get("/api/trainings/:id/overview", requireLogin, async (req, res) => {
   const groups = { zusage: [], vielleicht: [], absage: [], offen: [] };
   players.forEach((p) => {
     const r = byPlayer[p.id];
-    const entry = { id: p.id, name: p.name, reason: r ? r.reason : null };
+    const reasonVisible = !hideOthersReasons || p.id === req.playerId;
+    const entry = { id: p.id, name: p.name, reason: r && reasonVisible ? r.reason : null };
     if (!r) groups.offen.push(entry);
     else groups[r.status].push(entry);
   });
