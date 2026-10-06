@@ -42,6 +42,8 @@
     reasonPendingStatus: {}, // trainingId -> "vielleicht"|"absage", waehrend diese Box offen ist (leer = Zusage-Notiz)
     matches: [],       // Spielplan (manuell gepflegt), rein informativ - App laeuft auch ohne
     reasonsTrainerOnly: false, // global: Gruende bei Vielleicht/Absage nur fuer Trainer sichtbar
+    clubWordRequired: null, // Login-Maske: true = Feld zeigen, false = nicht, null = unbekannt (Feld sicherheitshalber zeigen)
+    clubWord: "", // nur Trainer: aktuell festgelegtes Vereinswort
     editingSeasonId: null, // welche Saison gerade in Verwaltung → Optionen bearbeitet wird
     adminSection: "trainings", // Unterbereich der Verwaltung: trainings | spielplan | spieler | optionen
     showMatchBanner: true, // vom Server geladene Einstellung - Trainer koennen die Spielvorschau ausblenden
@@ -278,6 +280,15 @@
 
   // ---------- Laden ----------
 
+  async function loadPublicInfo() {
+    try {
+      const data = await api("/public-info");
+      state.clubWordRequired = !!data.clubWordRequired;
+    } catch (e) {
+      state.clubWordRequired = null; // unbekannt -> Feld anzeigen, der Server prueft ohnehin
+    }
+  }
+
   async function loadMe() {
     const data = await api("/me");
     state.me = data.player;
@@ -356,6 +367,7 @@
       const data = await api("/settings");
       state.showMatchBanner = data.showMatchBanner;
       state.reasonsTrainerOnly = !!data.reasonsTrainerOnly;
+      state.clubWord = data.clubWord || "";
     } catch (e) {
       state.showMatchBanner = true; // im Zweifel anzeigen
     }
@@ -374,6 +386,7 @@
     document.getElementById("btn-logout").onclick = async () => {
       await api("/logout", { method: "POST" });
       state.me = null;
+      await loadPublicInfo();
       render();
     };
   }
@@ -419,6 +432,9 @@
         <input type="email" id="reg-email" autocomplete="username">
         <label>Passwort (mind. 6 Zeichen)</label>
         <input type="password" id="reg-password" autocomplete="new-password">
+        ${state.clubWordRequired !== false ? `
+        <label>Vereinswort</label>
+        <input type="text" id="reg-clubword" autocomplete="off" autocapitalize="off" placeholder="Habt ihr vom Trainer bekommen">` : ""}
         <div id="reg-error" class="error"></div>
         <div style="margin-top:12px;"><button id="btn-register">Registrieren</button></div>
       </div>
@@ -444,10 +460,12 @@
       const name = document.getElementById("reg-name").value.trim();
       const email = document.getElementById("reg-email").value.trim();
       const password = document.getElementById("reg-password").value;
+      const clubWordEl = document.getElementById("reg-clubword");
+      const clubWord = clubWordEl ? clubWordEl.value.trim() : "";
       const err = document.getElementById("reg-error");
       err.textContent = "";
       try {
-        const data = await api("/register", { method: "POST", body: { name, email, password } });
+        const data = await api("/register", { method: "POST", body: { name, email, password, clubWord } });
         state.me = data.player;
         await bootAfterLogin();
       } catch (e) {
@@ -1267,6 +1285,15 @@
       </div>
 
       <div class="card">
+        <h2>Vereinswort</h2>
+        <p class="muted">Wer sich neu registrieren möchte, muss dieses Wort eingeben. Bereits registrierte Spieler sind nicht betroffen. Leer lassen = kein Vereinswort nötig.</p>
+        <label>Vereinswort</label>
+        <input type="text" id="club-word-input" maxlength="40" autocomplete="off" value="${escapeHtml(state.clubWord)}" placeholder="z. B. Forelle">
+        <div style="margin-top:10px;"><button class="small" id="btn-save-club-word">Speichern</button></div>
+        <div id="club-word-msg" class="info"></div>
+      </div>
+
+      <div class="card">
         <h2>Saison</h2>
         <p class="muted">Trainings/Spiele werden automatisch anhand ihres Datums der passenden Saison zugerechnet. Die Statistik startet dadurch mit jeder neuen Saison von selbst wieder bei null.</p>
         ${currentSeason
@@ -1380,6 +1407,24 @@
         window.scrollTo(0, 0);
       };
     });
+
+    const saveClubWordBtn = document.getElementById("btn-save-club-word");
+    if (saveClubWordBtn) {
+      saveClubWordBtn.onclick = async () => {
+        const msg = document.getElementById("club-word-msg");
+        const word = document.getElementById("club-word-input").value.trim();
+        msg.className = "info";
+        msg.textContent = "";
+        try {
+          await api("/settings", { method: "POST", body: { clubWord: word } });
+          state.clubWord = word;
+          msg.textContent = word ? "Gespeichert. Neue Spieler brauchen jetzt dieses Wort." : "Vereinswort entfernt. Neue Spieler können sich ohne Wort registrieren.";
+        } catch (e) {
+          msg.className = "error";
+          msg.textContent = e.message;
+        }
+      };
+    }
 
     const toggleReasonsCb = document.getElementById("toggle-reasons-trainer-only");
     if (toggleReasonsCb) {
@@ -1885,6 +1930,7 @@
   (async function init() {
     try {
       await loadMe();
+      if (!state.me) await loadPublicInfo();
       if (state.me) {
         await loadTrainings();
         Promise.all([loadMatches(), loadSettings()]).then(render); // im Hintergrund, blockiert den Rest nicht

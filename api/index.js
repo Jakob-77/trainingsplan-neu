@@ -52,7 +52,12 @@ function viennaDateTimeToUtc(dateStr, timeStr) {
 // ---------- Auth ----------
 
 app.post("/api/register", async (req, res) => {
-  const { name, email, password } = req.body || {};
+  const { name, email, password, clubWord } = req.body || {};
+  // Vereinswort zuerst pruefen: Fremde erfahren so nicht einmal, ob eine E-Mail schon registriert ist.
+  const requiredWord = await readClubWord();
+  if (requiredWord && normalizeWord(clubWord) !== normalizeWord(requiredWord)) {
+    return res.status(403).json({ error: "Das Vereinswort stimmt nicht. Bitte beim Trainer nachfragen." });
+  }
   if (!name || !name.trim() || !email || !email.includes("@") || !password || password.length < 6) {
     return res.status(400).json({ error: "Bitte Name, gueltige E-Mail und ein Passwort mit mind. 6 Zeichen angeben." });
   }
@@ -99,6 +104,20 @@ app.get("/api/me", async (req, res) => {
 
 // ---------- Einstellungen (z. B. Spielvorschau ein-/ausblendbar) ----------
 
+// Vereinswort: Wer sich neu registrieren will, muss es eingeben (Trainer legen es in der Verwaltung
+// fest). Leer = kein Vereinswort noetig. Schuetzt vor Fremden, die nur den Link kennen.
+// Bereits registrierte Spieler sind davon nicht betroffen (Anmelden geht weiter nur mit E-Mail + Passwort).
+async function readClubWord() {
+  const row = await db.get("SELECT value FROM settings WHERE key = 'club_word'", []);
+  return row && row.value ? String(row.value).trim() : "";
+}
+const normalizeWord = (w) => String(w || "").trim().toLowerCase();
+
+// Oeffentlich (ohne Login): nur die Info, OB ein Vereinswort verlangt wird - nie das Wort selbst.
+app.get("/api/public-info", async (req, res) => {
+  res.json({ clubWordRequired: !!(await readClubWord()) });
+});
+
 // Globale Schalter (gelten fuer alle Trainings):
 // - show_match_banner: Spielvorschau im Trainingsplan anzeigen (Standard: an)
 // - reasons_trainer_only: Gruende bei Vielleicht/Absage nur fuer Trainer sichtbar (Standard: aus)
@@ -121,12 +140,24 @@ async function saveSetting(key, flag) {
 }
 
 app.get("/api/settings", requireLogin, async (req, res) => {
-  res.json(await readSettings());
+  const settings = await readSettings();
+  const me = await db.get("SELECT is_admin FROM players WHERE id = ?", [req.playerId]);
+  if (me && me.is_admin) settings.clubWord = await readClubWord(); // nur Trainer sehen das Wort
+  res.json(settings);
 });
 
 // Es duerfen einzelne Schalter gesendet werden - nicht mitgeschickte bleiben unveraendert.
 app.post("/api/settings", requireLogin, requireAdmin, async (req, res) => {
-  const { showMatchBanner, reasonsTrainerOnly } = req.body || {};
+  const { showMatchBanner, reasonsTrainerOnly, clubWord } = req.body || {};
+  if (clubWord !== undefined) {
+    const word = typeof clubWord === "string" ? clubWord.trim() : "";
+    if (word.length > 40) return res.status(400).json({ error: "Das Vereinswort darf höchstens 40 Zeichen lang sein." });
+    await db.run(
+      `INSERT INTO settings (key, value) VALUES ('club_word', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [word]
+    );
+  }
   if (showMatchBanner !== undefined) await saveSetting("show_match_banner", !!showMatchBanner);
   if (reasonsTrainerOnly !== undefined) await saveSetting("reasons_trainer_only", !!reasonsTrainerOnly);
   res.json({ ok: true });
