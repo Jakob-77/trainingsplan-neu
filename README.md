@@ -123,7 +123,7 @@ Nur zwei Dinge müssen dafür angepasst werden:
 
    | Datei | Größe | Wofür |
    |---|---|---|
-   | `club-logo.png` | ca. 160×160 px | Logo oben im Header |
+   | `club-logo.png` | ca. 192×192 px (transparenter Hintergrund) | Logo oben im Header und in der Spielvorschau |
    | `icon-192.png` | 192×192 px | App-Icon (klein) |
    | `icon-512.png` | 512×512 px | App-Icon (groß) |
    | `icon-maskable-512.png` | 512×512 px | App-Icon Android (Motiv mittig, Rand kann abgeschnitten werden) |
