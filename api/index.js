@@ -172,6 +172,28 @@ app.post("/api/seasons", requireLogin, requireAdmin, async (req, res) => {
   res.json({ id: Number(result.lastInsertRowid) });
 });
 
+// Zeitraum/Name einer bestehenden Saison aendern (z. B. Saison verlaengern, weil doch noch ein
+// Training im Jaenner stattfindet). Trainings/Spiele haengen nicht fest an einer Saison, sondern
+// werden ueber ihr Datum zugerechnet - die Statistik passt sich dadurch automatisch an.
+app.put("/api/seasons/:id", requireLogin, requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const { name, startDate, endDate } = req.body || {};
+  if (!name || !name.trim() || !startDate || !endDate) {
+    return res.status(400).json({ error: "Bitte Name, Start- und Enddatum angeben." });
+  }
+  if (endDate < startDate) {
+    return res.status(400).json({ error: "Das Enddatum darf nicht vor dem Startdatum liegen." });
+  }
+  const existing = await db.all("SELECT * FROM seasons", []);
+  if (!existing.some((s) => s.id === id)) return res.status(404).json({ error: "Saison nicht gefunden." });
+  const overlap = existing.find((s) => s.id !== id && startDate <= s.end_date && endDate >= s.start_date);
+  if (overlap) {
+    return res.status(400).json({ error: `Der Zeitraum überschneidet sich mit "${overlap.name}".` });
+  }
+  await db.run("UPDATE seasons SET name = ?, start_date = ?, end_date = ? WHERE id = ?", [name.trim(), startDate, endDate, id]);
+  res.json({ ok: true });
+});
+
 app.delete("/api/seasons/:id", requireLogin, requireAdmin, async (req, res) => {
   await db.run("DELETE FROM seasons WHERE id = ?", [Number(req.params.id)]);
   res.json({ ok: true });

@@ -42,6 +42,7 @@
     reasonPendingStatus: {}, // trainingId -> "vielleicht"|"absage", waehrend diese Box offen ist (leer = Zusage-Notiz)
     matches: [],       // Spielplan (manuell gepflegt), rein informativ - App laeuft auch ohne
     reasonsTrainerOnly: false, // global: Gruende bei Vielleicht/Absage nur fuer Trainer sichtbar
+    editingSeasonId: null, // welche Saison gerade in Verwaltung → Optionen bearbeitet wird
     adminSection: "trainings", // Unterbereich der Verwaltung: trainings | spielplan | spieler | optionen
     showMatchBanner: true, // vom Server geladene Einstellung - Trainer koennen die Spielvorschau ausblenden
     playersListOpen: false, // Spielerliste in der Verwaltung ist bei vielen Spielern lang - eingeklappt starten
@@ -609,6 +610,9 @@
     const boxOpen = !!state.reasonBoxOpen[t.id];
     const pendingStatus = state.reasonPendingStatus[t.id];
     const effectiveStatus = pendingStatus === "vielleicht" || pendingStatus === "absage" ? pendingStatus : "zusage";
+    // Waehrend der Grund noch eingegeben wird, ist der neu gewaehlte Button schon hervorgehoben
+    // (der Status oben rechts zeigt weiterhin den bisher GESPEICHERTEN Stand).
+    const shownStatus = boxOpen && effectiveStatus !== "zusage" ? effectiveStatus : status;
 
     return `
       <div class="card training ${isNext ? "next-training" : ""}" data-id="${t.id}">
@@ -633,9 +637,9 @@
           <p class="muted" style="margin-top:12px;font-style:italic;">🔒 Abstimmung geschlossen (weniger als 1 Stunde bis Trainingsbeginn oder bereits vorbei).</p>
         ` : `
           <div class="rsvp-buttons">
-            <button data-status="zusage" class="${status === "zusage" ? "active-zusage" : "inactive"}">Zusage</button>
-            <button data-status="vielleicht" class="${status === "vielleicht" ? "active-vielleicht" : "inactive"}">Vielleicht</button>
-            <button data-status="absage" class="${status === "absage" ? "active-absage" : "inactive"}">Absage</button>
+            <button data-status="zusage" class="${shownStatus === "zusage" ? "active-zusage" : "inactive"}">Zusage</button>
+            <button data-status="vielleicht" class="${shownStatus === "vielleicht" ? "active-vielleicht" : "inactive"}">Vielleicht</button>
+            <button data-status="absage" class="${shownStatus === "absage" ? "active-absage" : "inactive"}">Absage</button>
           </div>
           ${status === "zusage" && !boxOpen ? `
           <div style="margin-top:8px;">
@@ -718,7 +722,16 @@
           btn.onclick = async () => {
             const clickedStatus = btn.getAttribute("data-status");
             if (clickedStatus === "zusage") {
-              if (t.myStatus === "zusage") return; // schon zugesagt, nichts zu tun
+              if (t.myStatus === "zusage") {
+                // Schon zugesagt: war gerade eine Absage/ein Vielleicht in Arbeit, wird das verworfen
+                // und die Ansicht springt auf die gespeicherte Zusage zurueck.
+                if (state.reasonPendingStatus[id]) {
+                  delete state.reasonBoxOpen[id];
+                  delete state.reasonPendingStatus[id];
+                  render();
+                }
+                return;
+              }
               delete state.reasonBoxOpen[id];
               delete state.reasonPendingStatus[id];
               await submitRsvp(id, "zusage", "");
@@ -942,6 +955,33 @@
   }
 
   // ---------- Verwaltung (ausschließlich für Trainer sichtbar) ----------
+
+  function renderSeasonRow(s, canDelete) {
+    if (state.editingSeasonId === s.id) {
+      return `
+        <div class="list-item" style="display:block;" data-season-edit-id="${s.id}">
+          <label>Name</label>
+          <input type="text" class="se-name" value="${escapeHtml(s.name)}">
+          <div class="row">
+            <div><label>Von</label><input type="date" class="se-start" value="${escapeHtml(s.startDate)}"></div>
+            <div><label>Bis</label><input type="date" class="se-end" value="${escapeHtml(s.endDate)}"></div>
+          </div>
+          <div class="error se-error"></div>
+          <div style="margin-top:8px;display:flex;gap:8px;">
+            <button class="small btn-save-season" data-season-id="${s.id}">Speichern</button>
+            <button class="small secondary btn-cancel-season">Abbrechen</button>
+          </div>
+        </div>`;
+    }
+    return `
+      <div class="list-item">
+        <span>${escapeHtml(s.name)} <span class="muted">(${fmtDate(s.startDate)} – ${fmtDate(s.endDate)})</span></span>
+        <span>
+          <button class="small secondary btn-edit-season" data-season-id="${s.id}">Bearbeiten</button>
+          ${canDelete ? `<button class="small secondary btn-delete-season" data-season-id="${s.id}">Löschen</button>` : ""}
+        </span>
+      </div>`;
+  }
 
   function renderAdmin() {
     const visible = trainingsInCurrentWeek();
@@ -1230,17 +1270,14 @@
         <h2>Saison</h2>
         <p class="muted">Trainings/Spiele werden automatisch anhand ihres Datums der passenden Saison zugerechnet. Die Statistik startet dadurch mit jeder neuen Saison von selbst wieder bei null.</p>
         ${currentSeason
-          ? `<p>Aktuell läuft: <b>${escapeHtml(currentSeason.name)}</b> (${fmtDate(currentSeason.startDate)} – ${fmtDate(currentSeason.endDate)})</p>`
+          ? `<p style="margin-bottom:2px;">Aktuell läuft:</p>${renderSeasonRow(currentSeason, false)}`
           : `<p class="muted">Gerade ist keine Saison als "aktuell" hinterlegt (z. B. zwischen zwei Saisonen). Statistik zeigt in dem Fall automatisch alle Trainings.</p>`}
         ${otherSeasons.length > 0 ? `
-          <details style="margin:8px 0;">
+          <details style="margin:8px 0;" ${otherSeasons.some((x) => x.id === state.editingSeasonId) ? "open" : ""}>
             <summary class="muted" style="cursor:pointer;">${otherSeasons.length} weitere Saison${otherSeasons.length === 1 ? "" : "en"} anzeigen</summary>
-            ${otherSeasons.map((s) => `
-              <div class="list-item">
-                <span>${escapeHtml(s.name)} <span class="muted">(${fmtDate(s.startDate)} – ${fmtDate(s.endDate)})</span></span>
-                <button class="small secondary btn-delete-season" data-season-id="${s.id}">Löschen</button>
-              </div>`).join("")}
+            ${otherSeasons.map((x) => renderSeasonRow(x, true)).join("")}
           </details>` : ""}
+        <p class="muted" style="font-size:12px;">Tipp: Findet ein Training außerhalb des Zeitraums statt (z. B. noch im Jänner), den Zeitraum der Saison über „Bearbeiten“ anpassen — sonst zählt es in keiner Saison-Statistik.</p>
         <label style="margin-top:10px;">Neue Saison anlegen</label>
         <input type="text" id="season-name" placeholder="z. B. Herbstsaison 2026" value="${escapeHtml(suggestSeasonName())}">
         <div class="row">
@@ -1275,6 +1312,37 @@
         }
       };
     }
+
+    document.querySelectorAll(".btn-edit-season").forEach((btn) => {
+      btn.onclick = () => {
+        state.editingSeasonId = Number(btn.getAttribute("data-season-id"));
+        render();
+      };
+    });
+    document.querySelectorAll(".btn-cancel-season").forEach((btn) => {
+      btn.onclick = () => { state.editingSeasonId = null; render(); };
+    });
+    document.querySelectorAll(".btn-save-season").forEach((btn) => {
+      btn.onclick = async () => {
+        const row = btn.closest("[data-season-edit-id]");
+        const err = row.querySelector(".se-error");
+        err.textContent = "";
+        const body = {
+          name: row.querySelector(".se-name").value.trim(),
+          startDate: row.querySelector(".se-start").value,
+          endDate: row.querySelector(".se-end").value,
+        };
+        try {
+          await api(`/seasons/${btn.getAttribute("data-season-id")}`, { method: "PUT", body });
+          state.editingSeasonId = null;
+          await loadSeasons();
+          await loadStats(); // Statistik zaehlt jetzt andere Trainings mit
+          render();
+        } catch (e) {
+          err.textContent = e.message;
+        }
+      };
+    });
 
     document.querySelectorAll(".btn-delete-season").forEach((btn) => {
       btn.onclick = async () => {
