@@ -45,6 +45,10 @@
     clubWordRequired: null, // Login-Maske: true = Feld zeigen, false = nicht, null = unbekannt (Feld sicherheitshalber zeigen)
     clubWord: "", // nur Trainer: aktuell festgelegtes Vereinswort
     editingSeasonId: null, // welche Saison gerade in Verwaltung → Optionen bearbeitet wird
+    logEntries: null, // Protokoll (nur Trainer), null = noch nicht geladen
+    logError: "",
+    logFilter: "alle", // alle | rsvp | verwaltung | konto
+    logShown: 150, // wie viele Eintraege gerade angezeigt werden
     adminSection: "trainings", // Unterbereich der Verwaltung: trainings | spielplan | spieler | optionen
     showMatchBanner: true, // vom Server geladene Einstellung - Trainer koennen die Spielvorschau ausblenden
     playersListOpen: false, // Spielerliste in der Verwaltung ist bei vielen Spielern lang - eingeklappt starten
@@ -230,7 +234,7 @@
   async function api(path, opts) {
     const res = await fetch("/api" + path, {
       method: (opts && opts.method) || "GET",
-      headers: { "Content-Type": "application/json" },
+      headers: Object.assign({ "Content-Type": "application/json" }, (opts && opts.headers) || {}),
       body: opts && opts.body ? JSON.stringify(opts.body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
@@ -517,6 +521,7 @@
       await loadPlayers();
       if (state.matches.length === 0) await loadMatches();
       if (state.seasons.length === 0) await loadSeasons();
+      if (state.adminSection === "protokoll") await loadLog();
       state.loading = false; render();
     };
 
@@ -974,6 +979,68 @@
 
   // ---------- Verwaltung (ausschließlich für Trainer sichtbar) ----------
 
+  async function loadLog() {
+    try {
+      const data = await api("/log");
+      state.logEntries = data.entries;
+      state.logRetentionDays = data.retentionDays;
+      state.logError = "";
+    } catch (e) {
+      state.logError = e.message;
+    }
+  }
+
+  function renderLogSection() {
+    if (state.logError) {
+      return `<div class="card"><h2>Protokoll</h2><div class="error">${escapeHtml(state.logError)}</div>
+        <div style="margin-top:10px;"><button class="small secondary" id="btn-log-refresh">Erneut versuchen</button></div></div>`;
+    }
+    if (!state.logEntries) {
+      return `<div class="card"><h2>Protokoll</h2><p class="muted"><span class="spinner"></span> Lade …</p></div>`;
+    }
+    const TZ = "Europe/Vienna";
+    const dayKey = (d) => new Intl.DateTimeFormat("sv-SE", { timeZone: TZ }).format(d); // YYYY-MM-DD
+    const todayKey = dayKey(new Date());
+    const yesterdayKey = dayKey(new Date(Date.now() - 24 * 3600 * 1000));
+    const filters = [["alle", "Alle"], ["rsvp", "Rückmeldungen"], ["verwaltung", "Verwaltung"], ["konto", "Konten"]];
+    const list = state.logFilter === "alle" ? state.logEntries : state.logEntries.filter((e) => e.category === state.logFilter);
+    const shown = list.slice(0, state.logShown);
+
+    let html = "";
+    let lastDay = "";
+    shown.forEach((e) => {
+      const d = new Date(e.createdAt);
+      const key = dayKey(d);
+      if (key !== lastDay) {
+        lastDay = key;
+        const label = key === todayKey ? "Heute" : key === yesterdayKey ? "Gestern"
+          : d.toLocaleDateString("de-AT", { timeZone: TZ, weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+        html += `<div class="log-day">${escapeHtml(label)}</div>`;
+      }
+      const time = d.toLocaleTimeString("de-AT", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+      html += `
+        <div class="log-item log-${escapeHtml(e.category)}${e.tag ? ` log-tag-${escapeHtml(e.tag)}` : ""}">
+          <div class="log-time">${escapeHtml(time)}</div>
+          <div class="log-body"><b>${escapeHtml(e.actor || "Nicht angemeldet")}</b> · ${escapeHtml(e.text)}</div>
+        </div>`;
+    });
+
+    return `
+      <div class="card">
+        <div class="top-bar">
+          <h2 style="margin:0;">Protokoll</h2>
+          <button class="small secondary" id="btn-log-refresh">Aktualisieren</button>
+        </div>
+        <p class="muted" style="margin:6px 0 10px;">Alle Aktionen der letzten ${state.logRetentionDays || 7} Tage (Zeiten in Wiener Zeit). Ältere Einträge werden automatisch gelöscht.</p>
+        <div class="log-filters">
+          ${filters.map(([key, label]) => `<button class="small ${state.logFilter === key ? "" : "secondary"}" data-log-filter="${key}">${label}</button>`).join("")}
+        </div>
+        <div class="muted" style="margin:10px 0 0;">${list.length} Eintrag${list.length === 1 ? "" : "e"}</div>
+        ${list.length === 0 ? `<div class="empty">Keine Einträge in diesem Zeitraum.</div>` : html}
+        ${list.length > shown.length ? `<div style="margin-top:12px;"><button class="small secondary" id="btn-log-more">Mehr anzeigen (${list.length - shown.length} weitere)</button></div>` : ""}
+      </div>`;
+  }
+
   function renderSeasonRow(s, canDelete) {
     if (state.editingSeasonId === s.id) {
       return `
@@ -1018,6 +1085,7 @@
           <button class="${state.adminSection === "spielplan" ? "" : "secondary"}" data-admin-section="spielplan">Spielplan</button>
           <button class="${state.adminSection === "spieler" ? "" : "secondary"}" data-admin-section="spieler">Spieler</button>
           <button class="${state.adminSection === "optionen" ? "" : "secondary"}" data-admin-section="optionen">Optionen</button>
+          <button class="${state.adminSection === "protokoll" ? "" : "secondary"}" data-admin-section="protokoll">Protokoll</button>
       </div>
 
       <div class="admin-section" data-section="trainings" ${state.adminSection === "trainings" ? "" : "hidden"}>
@@ -1269,6 +1337,10 @@
       </div>
       </div>
 
+      <div class="admin-section" data-section="protokoll" ${state.adminSection === "protokoll" ? "" : "hidden"}>
+        ${renderLogSection()}
+      </div>
+
       <div class="admin-section" data-section="optionen" ${state.adminSection === "optionen" ? "" : "hidden"}>
       <div class="card">
         <h2>Sichtbarkeit</h2>
@@ -1401,12 +1473,35 @@
     }
 
     document.querySelectorAll("[data-admin-section]").forEach((btn) => {
-      btn.onclick = () => {
+      btn.onclick = async () => {
         state.adminSection = btn.getAttribute("data-admin-section");
         render();
         window.scrollTo(0, 0);
+        if (state.adminSection === "protokoll") {
+          await loadLog(); // beim Oeffnen immer frisch laden
+          render();
+        }
       };
     });
+
+    document.querySelectorAll("[data-log-filter]").forEach((btn) => {
+      btn.onclick = () => {
+        state.logFilter = btn.getAttribute("data-log-filter");
+        state.logShown = 150;
+        render();
+      };
+    });
+    const logRefreshBtn = document.getElementById("btn-log-refresh");
+    if (logRefreshBtn) logRefreshBtn.onclick = async () => {
+      logRefreshBtn.disabled = true;
+      await loadLog();
+      render();
+    };
+    const logMoreBtn = document.getElementById("btn-log-more");
+    if (logMoreBtn) logMoreBtn.onclick = () => {
+      state.logShown += 150;
+      render();
+    };
 
     const saveClubWordBtn = document.getElementById("btn-save-club-word");
     if (saveClubWordBtn) {
@@ -1547,6 +1642,7 @@
                 referee: item.referee || "",
                 note: item.note || "",
               },
+              headers: { "X-Log-Batch": "1" },
             });
             if (res.inserted) created++; else skipped++;
           } catch (e) {
@@ -1554,6 +1650,11 @@
           }
         }
 
+        if (created > 0) {
+          try {
+            await api("/log/batch", { method: "POST", body: { kind: "match-import", count: created, skipped, invalid } });
+          } catch (e) { /* Protokoll ist nur Zusatz */ }
+        }
         status.textContent = `Fertig: ${created} Spiele hinzugefügt${skipped > 0 ? `, ${skipped} bereits vorhanden übersprungen` : ""}${invalid > 0 ? `, ${invalid} Einträge waren unvollständig/ungültig` : ""}.`;
         bulkImportBtn.disabled = false;
         await loadMatches();
@@ -1684,11 +1785,16 @@
       let created = 0, skipped = 0;
       for (const date of dates) {
         try {
-          const res = await api("/trainings", { method: "POST", body: { date, time, ort, note } });
+          const res = await api("/trainings", { method: "POST", body: { date, time, ort, note }, headers: { "X-Log-Batch": "1" } });
           if (res.inserted) created++; else skipped++;
         } catch (e) {
           // einzelner Termin fehlgeschlagen - einfach mit den restlichen weitermachen
         }
+      }
+      if (created > 0) {
+        try {
+          await api("/log/batch", { method: "POST", body: { kind: "series", count: created, skipped, from: dates[0], to: dates[dates.length - 1], time, ort } });
+        } catch (e) { /* Protokoll ist nur Zusatz - ein Fehler hier stoert nicht */ }
       }
       status.textContent = `Fertig: ${created} Trainings angelegt${skipped > 0 ? `, ${skipped} bereits vorhanden übersprungen` : ""}.`;
       btn.disabled = false;

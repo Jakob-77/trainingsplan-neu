@@ -123,6 +123,21 @@ function initSchema() {
           created_at TEXT NOT NULL DEFAULT (datetime('now'))
         )
       `);
+      // Protokoll ("Wer hat wann was gemacht"), nur fuer Trainer sichtbar. Eintraege werden nach
+      // ca. 7 Tagen automatisch geloescht. actor_name wird mitgespeichert, damit der Eintrag auch
+      // dann lesbar bleibt, wenn der Spieler spaeter geloescht wird.
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS activity_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          actor_id INTEGER,
+          actor_name TEXT,
+          category TEXT NOT NULL,
+          tag TEXT,
+          text TEXT NOT NULL
+        )
+      `);
+      await client.execute("CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at)");
       // Migration fuer Datenbanken aus der Vor-Vercel-Version (falls per --from-file importiert):
       // is_guest wird nicht mehr gebraucht, macht aber nichts, wenn die Spalte noch existiert.
       await ensureColumn("players", "is_admin", "INTEGER NOT NULL DEFAULT 0");

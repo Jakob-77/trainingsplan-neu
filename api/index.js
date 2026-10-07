@@ -37,6 +37,65 @@ function publicPlayer(row) {
   return { id: row.id, name: row.name, email: row.email, isAdmin: !!row.is_admin };
 }
 
+// ---------- Protokoll ----------
+const LOG_RETENTION_DAYS = 7;
+const WEEKDAYS = ["So.", "Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa."];
+const STATUS_LABEL = { zusage: "Zusage", vielleicht: "Vielleicht", absage: "Absage" };
+let lastLogPrune = 0;
+
+function fmtDate(dateStr) {
+  if (!dateStr) return "";
+  const [y, m, d] = String(dateStr).split("-");
+  const wd = WEEKDAYS[new Date(`${dateStr}T12:00:00Z`).getUTCDay()];
+  return `${wd} ${d}.${m}.${y}`;
+}
+const fmtDateTime = (dateStr, timeStr) => `${fmtDate(dateStr)} ${timeStr || ""}`.trim();
+const clip = (v, n = 60) => {
+  const t = String(v == null ? "" : v).trim();
+  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+};
+
+async function actorOf(req) {
+  if (!req || !req.playerId) return { id: null, name: null };
+  try {
+    const p = await db.get("SELECT name FROM players WHERE id = ?", [req.playerId]);
+    return { id: req.playerId, name: p ? p.name : null };
+  } catch (e) {
+    return { id: req.playerId, name: null };
+  }
+}
+
+async function pruneLog() {
+  await db.run(`DELETE FROM activity_log WHERE created_at < datetime('now', '-${LOG_RETENTION_DAYS} days')`, []);
+}
+
+// Schreibt einen Protokoll-Eintrag. Ein Fehler hier darf die eigentliche Aktion NIE verhindern.
+async function logActivity(actor, category, text, tag) {
+  try {
+    await db.run(
+      "INSERT INTO activity_log (actor_id, actor_name, category, tag, text) VALUES (?, ?, ?, ?, ?)",
+      [actor && actor.id ? actor.id : null, actor && actor.name ? actor.name : null, category, tag || null, text]
+    );
+    if (Date.now() - lastLogPrune > 60 * 60 * 1000) {
+      lastLogPrune = Date.now();
+      await pruneLog();
+    }
+  } catch (e) {
+    console.error("Protokoll-Eintrag fehlgeschlagen:", e);
+  }
+}
+
+// Vergleicht alt/neu und liefert z. B. "Ort: Platz A → Halle; Notiz geändert" (leer = keine Änderung)
+function diffText(pairs) {
+  return pairs
+    .filter(([, a, b]) => String(a == null ? "" : a).trim() !== String(b == null ? "" : b).trim())
+    .map(([label, a, b]) => `${label}: ${clip(a) || "–"} → ${clip(b) || "–"}`)
+    .join("; ");
+}
+
+const matchLabel = (m) =>
+  `Spiel ${m.is_home ? "(Heim)" : "(Auswärts)"} gegen ${m.opponent}, ${fmtDateTime(m.date, m.time)}`;
+
 // Der Vercel-Server laeuft intern in UTC, Trainingszeiten sind aber als Wiener Ortszeit
 // gemeint. Diese Funktion rechnet "Datum + Uhrzeit in Wien" in den tatsaechlichen
 // UTC-Zeitpunkt um (beruecksichtigt Sommer-/Winterzeit automatisch).
@@ -56,6 +115,11 @@ app.post("/api/register", async (req, res) => {
   // Vereinswort zuerst pruefen: Fremde erfahren so nicht einmal, ob eine E-Mail schon registriert ist.
   const requiredWord = await readClubWord();
   if (requiredWord && normalizeWord(clubWord) !== normalizeWord(requiredWord)) {
+    await logActivity(
+      { id: null, name: null },
+      "konto",
+      `Registrierung mit falschem Vereinswort versucht (Name: ${clip(name, 40) || "–"}, E-Mail: ${clip(email, 60) || "–"})`
+    );
     return res.status(403).json({ error: "Das Vereinswort stimmt nicht. Bitte beim Trainer nachfragen." });
   }
   if (!name || !name.trim() || !email || !email.includes("@") || !password || password.length < 6) {
@@ -75,6 +139,7 @@ app.post("/api/register", async (req, res) => {
   const playerId = Number(result.lastInsertRowid);
   auth.setAuthCookie(res, playerId);
   const player = await db.get("SELECT * FROM players WHERE id = ?", [playerId]);
+  await logActivity({ id: playerId, name: player.name }, "konto", isFirst ? "Neu registriert (erster Spieler, automatisch Trainer)" : "Neu registriert");
   res.json({ player: publicPlayer(player) });
 });
 
@@ -83,13 +148,17 @@ app.post("/api/login", async (req, res) => {
   if (!email || !password) return res.status(400).json({ error: "Bitte E-Mail und Passwort angeben." });
   const player = await db.get("SELECT * FROM players WHERE email = ?", [email.trim().toLowerCase()]);
   if (!player || !bcrypt.compareSync(password, player.password_hash)) {
+    await logActivity({ id: null, name: null }, "konto", `Fehlgeschlagene Anmeldung (E-Mail: ${clip(email, 60)})`);
     return res.status(401).json({ error: "E-Mail oder Passwort ist falsch." });
   }
   auth.setAuthCookie(res, player.id);
+  await logActivity({ id: player.id, name: player.name }, "konto", "Angemeldet");
   res.json({ player: publicPlayer(player) });
 });
 
 app.post("/api/logout", async (req, res) => {
+  const pid = auth.getPlayerIdFromReq(req);
+  if (pid) await logActivity(await actorOf({ playerId: pid }), "konto", "Abgemeldet");
   auth.clearAuthCookie(res);
   res.json({ ok: true });
 });
@@ -149,17 +218,34 @@ app.get("/api/settings", requireLogin, async (req, res) => {
 // Es duerfen einzelne Schalter gesendet werden - nicht mitgeschickte bleiben unveraendert.
 app.post("/api/settings", requireLogin, requireAdmin, async (req, res) => {
   const { showMatchBanner, reasonsTrainerOnly, clubWord } = req.body || {};
+  const actor = await actorOf(req);
+  const before = await readSettings();
+  const wordBefore = await readClubWord();
   if (clubWord !== undefined) {
     const word = typeof clubWord === "string" ? clubWord.trim() : "";
     if (word.length > 40) return res.status(400).json({ error: "Das Vereinswort darf höchstens 40 Zeichen lang sein." });
+    if (word !== wordBefore) {
+      // Das Wort selbst steht bewusst NICHT im Protokoll
+      await logActivity(actor, "verwaltung", word ? (wordBefore ? "Vereinswort geändert" : "Vereinswort festgelegt") : "Vereinswort entfernt");
+    }
     await db.run(
       `INSERT INTO settings (key, value) VALUES ('club_word', ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       [word]
     );
   }
-  if (showMatchBanner !== undefined) await saveSetting("show_match_banner", !!showMatchBanner);
-  if (reasonsTrainerOnly !== undefined) await saveSetting("reasons_trainer_only", !!reasonsTrainerOnly);
+  if (showMatchBanner !== undefined) {
+    await saveSetting("show_match_banner", !!showMatchBanner);
+    if (!!showMatchBanner !== before.showMatchBanner) {
+      await logActivity(actor, "verwaltung", `Einstellung: Spielvorschau im Trainingsplan ${showMatchBanner ? "eingeschaltet" : "ausgeschaltet"}`);
+    }
+  }
+  if (reasonsTrainerOnly !== undefined) {
+    await saveSetting("reasons_trainer_only", !!reasonsTrainerOnly);
+    if (!!reasonsTrainerOnly !== before.reasonsTrainerOnly) {
+      await logActivity(actor, "verwaltung", `Einstellung: Gründe nur für Trainer sichtbar ${reasonsTrainerOnly ? "eingeschaltet" : "ausgeschaltet"}`);
+    }
+  }
   res.json({ ok: true });
 });
 
@@ -200,6 +286,7 @@ app.post("/api/seasons", requireLogin, requireAdmin, async (req, res) => {
     "INSERT INTO seasons (name, start_date, end_date) VALUES (?, ?, ?)",
     [name.trim(), startDate, endDate]
   );
+  await logActivity(await actorOf(req), "verwaltung", `Saison angelegt: ${name.trim()} (${fmtDate(startDate)} – ${fmtDate(endDate)})`);
   res.json({ id: Number(result.lastInsertRowid) });
 });
 
@@ -221,12 +308,21 @@ app.put("/api/seasons/:id", requireLogin, requireAdmin, async (req, res) => {
   if (overlap) {
     return res.status(400).json({ error: `Der Zeitraum überschneidet sich mit "${overlap.name}".` });
   }
+  const oldSeason = existing.find((x) => x.id === id);
   await db.run("UPDATE seasons SET name = ?, start_date = ?, end_date = ? WHERE id = ?", [name.trim(), startDate, endDate, id]);
+  const changes = diffText([
+    ["Name", oldSeason.name, name.trim()],
+    ["Start", fmtDate(oldSeason.start_date), fmtDate(startDate)],
+    ["Ende", fmtDate(oldSeason.end_date), fmtDate(endDate)],
+  ]);
+  if (changes) await logActivity(await actorOf(req), "verwaltung", `Saison bearbeitet (${oldSeason.name}): ${changes}`);
   res.json({ ok: true });
 });
 
 app.delete("/api/seasons/:id", requireLogin, requireAdmin, async (req, res) => {
+  const old = await db.get("SELECT * FROM seasons WHERE id = ?", [Number(req.params.id)]);
   await db.run("DELETE FROM seasons WHERE id = ?", [Number(req.params.id)]);
+  if (old) await logActivity(await actorOf(req), "verwaltung", `Saison gelöscht: ${old.name} (${fmtDate(old.start_date)} – ${fmtDate(old.end_date)})`);
   res.json({ ok: true });
 });
 
@@ -250,6 +346,7 @@ app.post("/api/players/:id/admin", requireLogin, requireAdmin, async (req, res) 
     }
   }
   await db.run("UPDATE players SET is_admin = ? WHERE id = ?", [p.is_admin ? 0 : 1, id]);
+  await logActivity(await actorOf(req), "verwaltung", p.is_admin ? `Trainer-Rolle entzogen: ${p.name}` : `Zum Trainer ernannt: ${p.name}`);
   res.json({ ok: true });
 });
 
@@ -263,9 +360,11 @@ app.delete("/api/players/:id", requireLogin, requireAdmin, async (req, res) => {
   if (id === req.playerId) {
     return res.status(400).json({ error: "Du kannst dich nicht selbst löschen." });
   }
-  const p = await db.get("SELECT id FROM players WHERE id = ?", [id]);
+  const p = await db.get("SELECT id, name FROM players WHERE id = ?", [id]);
   if (!p) return res.status(404).json({ error: "Spieler nicht gefunden." });
+  const respCount = await db.get("SELECT COUNT(*) AS c FROM responses WHERE player_id = ?", [id]);
   await db.run("DELETE FROM players WHERE id = ?", [id]);
+  await logActivity(await actorOf(req), "verwaltung", `Spieler gelöscht: ${p.name} (${respCount ? respCount.c : 0} Rückmeldungen mit entfernt)`);
   res.json({ ok: true });
 });
 
@@ -320,6 +419,10 @@ app.post("/api/trainings", requireLogin, requireAdmin, async (req, res) => {
     "INSERT INTO trainings (date, time, ort, note) VALUES (?, ?, ?, ?)",
     [date, time, ort.trim(), (note || "").trim() || null]
   );
+  // Bei Serientermine-Anlage (Header X-Log-Batch) schreibt das Frontend am Ende EINEN Sammel-Eintrag.
+  if (req.headers["x-log-batch"] !== "1") {
+    await logActivity(await actorOf(req), "verwaltung", `Training angelegt: ${fmtDateTime(date, time)} Uhr, ${ort.trim()}`);
+  }
   res.json({ id: Number(result.lastInsertRowid), inserted: true });
 });
 
@@ -329,7 +432,7 @@ app.put("/api/trainings/:id", requireLogin, requireAdmin, async (req, res) => {
   if (!date || !time || !ort || !ort.trim()) {
     return res.status(400).json({ error: "Bitte Datum, Uhrzeit und Ort angeben." });
   }
-  const existing = await db.get("SELECT id FROM trainings WHERE id = ?", [id]);
+  const existing = await db.get("SELECT * FROM trainings WHERE id = ?", [id]);
   if (!existing) return res.status(404).json({ error: "Training nicht gefunden." });
   // Duplikat-Schutz wie beim Anlegen: kein anderes Training am selben Datum/Uhrzeit
   const clash = await db.get("SELECT id FROM trainings WHERE date = ? AND time = ? AND id != ?", [date, time, id]);
@@ -340,11 +443,28 @@ app.put("/api/trainings/:id", requireLogin, requireAdmin, async (req, res) => {
     "UPDATE trainings SET date = ?, time = ?, ort = ?, note = ? WHERE id = ?",
     [date, time, ort.trim(), (note || "").trim() || null, id]
   );
+  const changes = diffText([
+    ["Termin", fmtDateTime(existing.date, existing.time), fmtDateTime(date, time)],
+    ["Ort", existing.ort, ort.trim()],
+    ["Notiz", existing.note, note],
+  ]);
+  if (changes) {
+    await logActivity(await actorOf(req), "verwaltung", `Training bearbeitet (${fmtDateTime(existing.date, existing.time)}): ${changes}`);
+  }
   res.json({ ok: true });
 });
 
 app.delete("/api/trainings/:id", requireLogin, requireAdmin, async (req, res) => {
+  const old = await db.get("SELECT * FROM trainings WHERE id = ?", [Number(req.params.id)]);
+  const respCount = old ? await db.get("SELECT COUNT(*) AS c FROM responses WHERE training_id = ?", [old.id]) : null;
   await db.run("DELETE FROM trainings WHERE id = ?", [Number(req.params.id)]);
+  if (old) {
+    await logActivity(
+      await actorOf(req),
+      "verwaltung",
+      `Training gelöscht: ${fmtDateTime(old.date, old.time)} Uhr, ${old.ort} (${respCount ? respCount.c : 0} Rückmeldungen mit entfernt)`
+    );
+  }
   res.json({ ok: true });
 });
 
@@ -357,8 +477,9 @@ app.post("/api/trainings/:id/rsvp", requireLogin, async (req, res) => {
   if ((status === "vielleicht" || status === "absage") && (!reason || !reason.trim())) {
     return res.status(400).json({ error: "Bitte einen Grund angeben." });
   }
-  const training = await db.get("SELECT id, date, time FROM trainings WHERE id = ?", [trainingId]);
+  const training = await db.get("SELECT id, date, time, ort FROM trainings WHERE id = ?", [trainingId]);
   if (!training) return res.status(404).json({ error: "Training nicht gefunden." });
+  const prevResponse = await db.get("SELECT status, reason FROM responses WHERE training_id = ? AND player_id = ?", [trainingId, req.playerId]);
 
   const trainingStart = viennaDateTimeToUtc(training.date, training.time);
   const cutoff = new Date(trainingStart.getTime() - 60 * 60 * 1000); // 1 Stunde vorher
@@ -374,6 +495,17 @@ app.post("/api/trainings/:id/rsvp", requireLogin, async (req, res) => {
      DO UPDATE SET status = excluded.status, reason = excluded.reason, updated_at = datetime('now')`,
     [trainingId, req.playerId, status, cleanReason]
   );
+  const unchanged = prevResponse && prevResponse.status === status && (prevResponse.reason || null) === (cleanReason || null);
+  if (!unchanged) {
+    await logActivity(
+      await actorOf(req),
+      "rsvp",
+      `${STATUS_LABEL[status]} für Training ${fmtDateTime(training.date, training.time)}` +
+        (prevResponse && prevResponse.status !== status ? ` (vorher: ${STATUS_LABEL[prevResponse.status]})` : "") +
+        (cleanReason ? ` – Grund: ${clip(cleanReason, 120)}` : ""),
+      status
+    );
+  }
   res.json({ ok: true });
 });
 
@@ -424,10 +556,11 @@ app.post("/api/trainings/:id/rsvp-for/:playerId", requireLogin, requireAdmin, as
   if ((status === "vielleicht" || status === "absage") && (!reason || !reason.trim())) {
     return res.status(400).json({ error: "Bitte einen Grund angeben." });
   }
-  const training = await db.get("SELECT id FROM trainings WHERE id = ?", [trainingId]);
+  const training = await db.get("SELECT id, date, time FROM trainings WHERE id = ?", [trainingId]);
   if (!training) return res.status(404).json({ error: "Training nicht gefunden." });
-  const player = await db.get("SELECT id FROM players WHERE id = ?", [playerId]);
+  const player = await db.get("SELECT id, name FROM players WHERE id = ?", [playerId]);
   if (!player) return res.status(404).json({ error: "Spieler nicht gefunden." });
+  const prevResponse = await db.get("SELECT status, reason FROM responses WHERE training_id = ? AND player_id = ?", [trainingId, playerId]);
 
   const cleanReason = reason && reason.trim() ? reason.trim() : null;
   await db.run(
@@ -437,6 +570,17 @@ app.post("/api/trainings/:id/rsvp-for/:playerId", requireLogin, requireAdmin, as
      DO UPDATE SET status = excluded.status, reason = excluded.reason, updated_at = datetime('now')`,
     [trainingId, playerId, status, cleanReason]
   );
+  const unchangedByTrainer = prevResponse && prevResponse.status === status && (prevResponse.reason || null) === (cleanReason || null);
+  if (!unchangedByTrainer) {
+    await logActivity(
+      await actorOf(req),
+      "rsvp",
+      `Trainer-Eintrag für ${player.name}: ${STATUS_LABEL[status]} für Training ${fmtDateTime(training.date, training.time)}` +
+        (prevResponse && prevResponse.status !== status ? ` (vorher: ${STATUS_LABEL[prevResponse.status]})` : "") +
+        (cleanReason ? ` – Grund: ${clip(cleanReason, 120)}` : ""),
+      status
+    );
+  }
 
   // Aktuelle Zaehler gleich mitliefern, damit das Frontend die Schnellansicht (Trainings-Tab)
   // ohne einen zweiten Request synchron halten kann - bleibt dadurch schnell UND korrekt.
@@ -454,16 +598,25 @@ app.post("/api/trainings/:id/guests", requireLogin, requireAdmin, async (req, re
   const trainingId = Number(req.params.id);
   const { name } = req.body || {};
   if (!name || !name.trim()) return res.status(400).json({ error: "Bitte einen Namen angeben." });
-  const training = await db.get("SELECT id FROM trainings WHERE id = ?", [trainingId]);
+  const training = await db.get("SELECT id, date, time FROM trainings WHERE id = ?", [trainingId]);
   if (!training) return res.status(404).json({ error: "Training nicht gefunden." });
   const result = await db.run(
     "INSERT INTO training_guests (training_id, name) VALUES (?, ?)",
     [trainingId, name.trim()]
   );
+  await logActivity(await actorOf(req), "verwaltung", `Gastspieler hinzugefügt: ${clip(name, 40)} (Training ${fmtDateTime(training.date, training.time)})`);
   res.json({ id: Number(result.lastInsertRowid) });
 });
 
 app.delete("/api/trainings/:id/guests/:guestId", requireLogin, requireAdmin, async (req, res) => {
+  const guest = await db.get(
+    `SELECT g.name, t.date, t.time FROM training_guests g JOIN trainings t ON t.id = g.training_id
+     WHERE g.id = ? AND g.training_id = ?`,
+    [Number(req.params.guestId), Number(req.params.id)]
+  );
+  if (guest) {
+    await logActivity(await actorOf(req), "verwaltung", `Gastspieler entfernt: ${clip(guest.name, 40)} (Training ${fmtDateTime(guest.date, guest.time)})`);
+  }
   await db.run(
     "DELETE FROM training_guests WHERE id = ? AND training_id = ?",
     [Number(req.params.guestId), Number(req.params.id)]
@@ -600,7 +753,15 @@ app.post("/api/matches", requireLogin, requireAdmin, async (req, res) => {
         (note || "").trim() || null,
       ]
     );
-    res.json({ ok: true, inserted: result.rowsAffected > 0 });
+    const inserted = result.rowsAffected > 0;
+    if (inserted && req.headers["x-log-batch"] !== "1") {
+      await logActivity(
+        await actorOf(req),
+        "verwaltung",
+        `Spiel angelegt: ${matchLabel({ is_home: isHome ? 1 : 0, opponent: opponent.trim(), date, time })}`
+      );
+    }
+    res.json({ ok: true, inserted });
   } catch (e) {
     res.status(400).json({ error: "Konnte Spiel nicht speichern." });
   }
@@ -612,7 +773,7 @@ app.put("/api/matches/:id", requireLogin, requireAdmin, async (req, res) => {
   if (!opponent || !opponent.trim() || !date || !time) {
     return res.status(400).json({ error: "Bitte Gegner, Datum und Uhrzeit angeben." });
   }
-  const existing = await db.get("SELECT id FROM matches WHERE id = ?", [id]);
+  const existing = await db.get("SELECT * FROM matches WHERE id = ?", [id]);
   if (!existing) return res.status(404).json({ error: "Spiel nicht gefunden." });
   try {
     await db.run(
@@ -631,6 +792,17 @@ app.put("/api/matches/:id", requireLogin, requireAdmin, async (req, res) => {
         id,
       ]
     );
+    const changes = diffText([
+      ["Gegner", existing.opponent, opponent.trim()],
+      ["Termin", fmtDateTime(existing.date, existing.time), fmtDateTime(date, time)],
+      ["Heim/Auswärts", existing.is_home ? "Heim" : "Auswärts", isHome ? "Heim" : "Auswärts"],
+      ["Ort", existing.ort, ort],
+      ["Schiedsrichter", existing.referee, referee],
+      ["Runde", existing.round, round],
+      ["Notiz", existing.note, note],
+      ["Logo-Link", existing.opponent_logo_url, opponentLogoUrl],
+    ]);
+    if (changes) await logActivity(await actorOf(req), "verwaltung", `Spiel bearbeitet (${matchLabel(existing)}): ${changes}`);
     res.json({ ok: true });
   } catch (e) {
     res.status(400).json({ error: "Konnte Spiel nicht speichern (evtl. gibt es dieses Datum/Uhrzeit/Gegner schon)." });
@@ -638,8 +810,52 @@ app.put("/api/matches/:id", requireLogin, requireAdmin, async (req, res) => {
 });
 
 app.delete("/api/matches/:id", requireLogin, requireAdmin, async (req, res) => {
+  const old = await db.get("SELECT * FROM matches WHERE id = ?", [Number(req.params.id)]);
   await db.run("DELETE FROM matches WHERE id = ?", [Number(req.params.id)]);
+  if (old) await logActivity(await actorOf(req), "verwaltung", `Spiel gelöscht: ${matchLabel(old)}`);
   res.json({ ok: true });
+});
+
+// ---------- Protokoll (nur Trainer) ----------
+
+// Sammel-Eintrag fuer Serientermine / Spiel-Import: das Frontend legt viele Eintraege einzeln an
+// (mit Header X-Log-Batch) und meldet am Ende nur das Ergebnis - sonst waere das Protokoll voller Einzelzeilen.
+app.post("/api/log/batch", requireLogin, requireAdmin, async (req, res) => {
+  const { kind, count, skipped, invalid, from, to, time, ort } = req.body || {};
+  const n = Math.max(0, Math.min(1000, Number(count) || 0));
+  const sk = Math.max(0, Math.min(1000, Number(skipped) || 0));
+  const inv = Math.max(0, Math.min(1000, Number(invalid) || 0));
+  let text = null;
+  if (kind === "series") {
+    text =
+      `Serientermine angelegt: ${n} Trainings` +
+      (from && to ? ` (${fmtDate(from)} – ${fmtDate(to)}` + (time ? `, ${clip(time, 5)} Uhr` : "") + (ort ? `, ${clip(ort, 40)}` : "") + ")" : "") +
+      (sk ? `, ${sk} bereits vorhanden übersprungen` : "");
+  } else if (kind === "match-import") {
+    text = `Spielplan importiert: ${n} Spiele hinzugefügt` + (sk ? `, ${sk} bereits vorhanden übersprungen` : "") + (inv ? `, ${inv} ungültig` : "");
+  }
+  if (!text) return res.status(400).json({ error: "Unbekannte Art von Sammel-Eintrag." });
+  await logActivity(await actorOf(req), "verwaltung", text);
+  res.json({ ok: true });
+});
+
+app.get("/api/log", requireLogin, requireAdmin, async (req, res) => {
+  await pruneLog();
+  const rows = await db.all(
+    "SELECT id, created_at, actor_name, category, tag, text FROM activity_log ORDER BY id DESC LIMIT 1500",
+    []
+  );
+  res.json({
+    retentionDays: LOG_RETENTION_DAYS,
+    entries: rows.map((r) => ({
+      id: r.id,
+      createdAt: String(r.created_at).replace(" ", "T") + "Z", // in der DB steht UTC
+      actor: r.actor_name || null,
+      category: r.category,
+      tag: r.tag || null,
+      text: r.text,
+    })),
+  });
 });
 
 module.exports = app;
