@@ -259,6 +259,16 @@ async function tick(now = new Date(), { force = false } = {}) {
   if (!webpush) return Object.assign(out, { ran: false, reason: "web-push nicht installiert" });
   if (!force && Date.now() - lastTickAt < TICK_MIN_GAP_MS) return Object.assign(out, { ran: false, reason: "zu kurz nach dem letzten Aufruf" });
   lastTickAt = Date.now();
+  // Merken, wann zuletzt "nachgeschaut" wurde - die Verwaltung zeigt damit, ob der regelmaessige Aufruf eingerichtet ist
+  try {
+    await db.run(
+      `INSERT INTO settings (key, value) VALUES ('last_tick', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [new Date().toISOString()]
+    );
+  } catch (e) {
+    console.error("last_tick nicht gespeichert:", e);
+  }
 
   const cfg = await readConfig();
   if (!cfg.reminder.enabled && !cfg.summary.enabled) return out;
@@ -380,7 +390,8 @@ async function sendTest(playerId, kind) {
 
 async function getStatus() {
   const row = await db.get("SELECT COUNT(*) AS devices, COUNT(DISTINCT player_id) AS players FROM push_subscriptions", []);
-  return { devices: row ? row.devices : 0, players: row ? row.players : 0 };
+  const tick = await db.get("SELECT value FROM settings WHERE key = 'last_tick'", []);
+  return { devices: row ? row.devices : 0, players: row ? row.players : 0, lastTick: tick ? tick.value : null };
 }
 
 module.exports = {

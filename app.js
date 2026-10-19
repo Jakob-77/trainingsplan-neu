@@ -50,6 +50,8 @@
       available: false, publicKey: null, types: {}, prefs: { reminder: true, change: true, summary: true },
       isAdmin: false, busy: false, error: "",
     },
+    optOpen: {}, // welche Bereiche in Verwaltung → Optionen aufgeklappt sind
+    notifEditing: null, // welcher Benachrichtigungstext gerade bearbeitet wird
     notifCfg: null, // Trainer: Einstellungen der Benachrichtigungen (null = noch nicht geladen)
     notifDefaults: null,
     notifPlaceholders: null,
@@ -1181,134 +1183,276 @@
   const renderNotifTpl = (str, vars) =>
     String(str || "").replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
 
-  function renderNotifAdminCard() {
-    const c = state.notifCfg;
-    if (!c) return `<div class="card"><h2>Benachrichtigungen</h2><p class="muted"><span class="spinner"></span> Lade …</p></div>`;
-    const st = state.notifStatus || { devices: 0, players: 0 };
-    const tickUrl = `${location.origin}/api/cron/tick`;
-    const ph = (kind) => (state.notifPlaceholders && state.notifPlaceholders[kind] || []).map((x) => `{${x}}`).join(" ");
-    const field = (id, label, value, max) => `
-      <label for="${id}">${label}</label>
-      <input type="text" id="${id}" maxlength="${max}" value="${escapeHtml(value)}" data-notif-text>
-      <div class="muted" id="${id}-preview" style="font-size:12px;margin-top:3px;"></div>`;
-    const hours = (kind, label) => `
-      <div class="row" style="align-items:flex-end;">
-        <div><label for="nc-${kind}-hours">${label}</label>
-          <input type="number" id="nc-${kind}-hours" min="1" max="72" step="1" value="${c[kind].hoursBefore}"></div>
-      </div>`;
-    const testBtn = (kind) => `<button class="small secondary btn-test-notif" data-kind="${kind}">Test an mich senden</button>`;
+  // Die drei Arten mit allem, was die Oberflaeche braucht. "bubbles" = die Texte, die man aendern kann.
+  const NOTIF_KINDS = [
+    { kind: "reminder", title: "Erinnerung", desc: "Geht an Spieler, die noch nicht abgestimmt haben.", hours: true,
+      bubbles: [{ key: "reminder", label: "", fields: ["title", "body"], ids: ["nc-reminder-title", "nc-reminder-body"] }] },
+    { kind: "change", title: "Änderung oder Absage", desc: "Geht sofort an alle, wenn du ein Training änderst oder löschst.", hours: false,
+      bubbles: [
+        { key: "change", label: "Bei Änderung", fields: ["title", "body"], ids: ["nc-change-title", "nc-change-body"] },
+        { key: "change-cancel", label: "Bei Absage", fields: ["cancelTitle", "cancelBody"], ids: ["nc-change-ctitle", "nc-change-cbody"] },
+      ] },
+    { kind: "summary", title: "Zusagen-Übersicht", desc: "Geht nur an Trainer: wie viele zugesagt haben.", hours: true,
+      bubbles: [{ key: "summary", label: "", fields: ["title", "body"], ids: ["nc-summary-title", "nc-summary-body"] }] },
+  ];
+  const NOTIF_CHIP_LABELS = {
+    tag: "Tag (morgen)", Tag: "Tag (Morgen)", datum: "Datum", zeit: "Uhrzeit", ort: "Ort", aenderung: "Was sich geändert hat",
+    zusagen: "Anzahl Zusagen", vielleicht: "Anzahl Vielleicht", absagen: "Anzahl Absagen", offen: "Anzahl offen", gaeste: "Anzahl Gäste",
+  };
 
-    return `
-      <div class="card">
-        <h2>Benachrichtigungen</h2>
-        ${state.notifAvailable ? "" : `<div class="error">Benachrichtigungen sind auf dem Server nicht verfügbar (Paket „web-push“ fehlt).</div>`}
-        <p class="muted">${st.devices} Gerät${st.devices === 1 ? "" : "e"} von ${st.players} Spieler${st.players === 1 ? "" : "n"} angemeldet. Jeder Spieler schaltet Benachrichtigungen selbst im Reiter „Trainings“ (ganz unten) ein und kann einzelne Arten abwählen.</p>
-
-        <label class="switch-row"><input type="checkbox" id="nc-reminder-enabled" ${c.reminder.enabled ? "checked" : ""}> <b>Erinnerung</b> an Spieler, die noch nicht abgestimmt haben</label>
-        ${hours("reminder", "Stunden vor Trainingsbeginn")}
-        <details style="margin:6px 0 14px;"><summary class="muted" style="cursor:pointer;">Text bearbeiten</summary>
-          ${field("nc-reminder-title", "Titel", c.reminder.title, 80)}
-          ${field("nc-reminder-body", "Text", c.reminder.body, 200)}
-          <p class="muted" style="font-size:12px;">Platzhalter: ${ph("reminder")}</p>
-        </details>
-        <div style="margin-bottom:14px;">${testBtn("reminder")}</div>
-
-        <label class="switch-row"><input type="checkbox" id="nc-change-enabled" ${c.change.enabled ? "checked" : ""}> <b>Änderung oder Absage</b> eines Trainings an alle (sofort)</label>
-        <details style="margin:6px 0 14px;"><summary class="muted" style="cursor:pointer;">Texte bearbeiten</summary>
-          ${field("nc-change-title", "Titel bei Änderung", c.change.title, 80)}
-          ${field("nc-change-body", "Text bei Änderung", c.change.body, 200)}
-          ${field("nc-change-ctitle", "Titel bei Absage", c.change.cancelTitle, 80)}
-          ${field("nc-change-cbody", "Text bei Absage", c.change.cancelBody, 200)}
-          <p class="muted" style="font-size:12px;">Platzhalter: ${ph("change")}</p>
-        </details>
-        <div style="margin-bottom:14px;">${testBtn("change")}</div>
-
-        <label class="switch-row"><input type="checkbox" id="nc-summary-enabled" ${c.summary.enabled ? "checked" : ""}> <b>Übersicht der Zusagen</b> für Trainer</label>
-        ${hours("summary", "Stunden vor Trainingsbeginn")}
-        <details style="margin:6px 0 14px;"><summary class="muted" style="cursor:pointer;">Text bearbeiten</summary>
-          ${field("nc-summary-title", "Titel", c.summary.title, 80)}
-          ${field("nc-summary-body", "Text", c.summary.body, 200)}
-          <p class="muted" style="font-size:12px;">Platzhalter: ${ph("summary")}</p>
-        </details>
-        <div style="margin-bottom:14px;">${testBtn("summary")}</div>
-
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="small" id="btn-save-notif">Speichern</button>
-          <button class="small secondary" id="btn-reset-notif-texts">Standardtexte einsetzen</button>
-        </div>
-        <div id="nc-msg" class="info"></div>
-
-        <p class="muted" style="font-size:12px;margin-top:14px;"><b>Pünktlich senden:</b> Erinnerung und Zusagen-Übersicht werden von einem regelmäßigen Aufruf ausgelöst. Ruf dazu alle 10 bis 15 Minuten diese Adresse auf, zum Beispiel mit dem kostenlosen Dienst cron-job.org:</p>
-        <code class="url-box">${escapeHtml(tickUrl)}</code>
-        <p class="muted" style="font-size:12px;">Ohne diesen Aufruf prüft Vercel nur einmal täglich, die beiden Benachrichtigungen kommen dann verspätet. Änderungen und Absagen werden immer sofort gesendet.</p>
-      </div>`;
+  function relTime(iso) {
+    if (!iso) return null;
+    const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+    if (min < 1) return "gerade eben";
+    if (min < 60) return `vor ${min} Min.`;
+    if (min < 60 * 24) return `vor ${Math.round(min / 60)} Std.`;
+    const days = Math.round(min / 1440);
+    return `vor ${days} Tag${days === 1 ? "" : "en"}`;
   }
 
-  function collectNotifForm() {
-    const v = (id) => document.getElementById(id).value;
-    const chk = (id) => document.getElementById(id).checked;
-    return {
-      reminder: { enabled: chk("nc-reminder-enabled"), hoursBefore: Number(v("nc-reminder-hours")), title: v("nc-reminder-title"), body: v("nc-reminder-body") },
-      change: { enabled: chk("nc-change-enabled"), title: v("nc-change-title"), body: v("nc-change-body"), cancelTitle: v("nc-change-ctitle"), cancelBody: v("nc-change-cbody") },
-      summary: { enabled: chk("nc-summary-enabled"), hoursBefore: Number(v("nc-summary-hours")), title: v("nc-summary-title"), body: v("nc-summary-body") },
+  function notifSummaryText() {
+    const c = state.notifCfg;
+    if (!c) return "";
+    const on = ["reminder", "change", "summary"].filter((k) => c[k].enabled).length;
+    return on === 0 ? "alle aus" : `${on} von 3 an`;
+  }
+
+  // Inhalt des aufklappbaren Bereichs "Benachrichtigungen"
+  function renderNotifAdminCard() {
+    const c = state.notifCfg;
+    if (!c) return `<p class="muted"><span class="spinner"></span> Lade …</p>`;
+    const st = state.notifStatus || { devices: 0, players: 0, lastTick: null };
+    const tickUrl = `${location.origin}/api/cron/tick`;
+    const ageMin = st.lastTick ? (Date.now() - new Date(st.lastTick).getTime()) / 60000 : null;
+    const tickClass = ageMin === null ? "warn" : ageMin <= 30 ? "ok" : "warn";
+    const tickText = ageMin === null ? "Automatische Prüfung: noch nie gelaufen" : ageMin <= 30 ? `Automatische Prüfung: aktiv (${relTime(st.lastTick)})` : `Automatische Prüfung: zuletzt ${relTime(st.lastTick)}`;
+
+    const itemHtml = (k) => {
+      const cfg = c[k.kind];
+      const bubblesHtml = k.bubbles.map((bub) => {
+        const [fTitle, fBody] = bub.fields;
+        const chips = (state.notifPlaceholders && state.notifPlaceholders[k.kind] || [])
+          .filter((p) => !(bub.key === "change-cancel" && p === "aenderung"))
+          .map((p) => `<button type="button" class="chip" data-insert="{${p}}">${escapeHtml(NOTIF_CHIP_LABELS[p] || p)}</button>`).join("");
+        return `
+          ${bub.label ? `<div class="bubble-label">${bub.label}</div>` : ""}
+          <div class="notif-bubble" data-bubble="${bub.key}">
+            <img class="bubble-icon" src="/icons/icon-192.png" alt="">
+            <div style="min-width:0;">
+              <div class="bubble-app">Trainingsplaner · jetzt</div>
+              <div class="bubble-title"></div>
+              <div class="bubble-body"></div>
+            </div>
+          </div>
+          <div class="notif-actions"><button type="button" class="small secondary" data-edit-text="${bub.key}">Text ändern</button></div>
+          <div class="notif-editor" id="ed-${bub.key}" ${state.notifEditing === bub.key ? "" : "hidden"}>
+            <label for="${bub.ids[0]}">Überschrift</label>
+            <input type="text" id="${bub.ids[0]}" maxlength="80" value="${escapeHtml(cfg[fTitle])}" data-field-of="${bub.key}">
+            <label for="${bub.ids[1]}">Nachricht</label>
+            <textarea id="${bub.ids[1]}" rows="2" maxlength="200" data-field-of="${bub.key}">${escapeHtml(cfg[fBody])}</textarea>
+            <div class="muted" style="font-size:12px;margin-top:8px;">Antippen fügt ein Stück ein, das beim Senden automatisch ersetzt wird:</div>
+            <div class="chips">${chips}</div>
+            <div class="notif-actions" style="margin-top:0;">
+              <button type="button" class="small" data-save-text="${bub.key}">Speichern</button>
+              <button type="button" class="small secondary" data-default-text="${bub.key}">Standardtext</button>
+              <button type="button" class="small secondary" data-cancel-text="${bub.key}">Abbrechen</button>
+            </div>
+            <div class="error" id="ed-${bub.key}-err"></div>
+          </div>`;
+      }).join("");
+      return `
+        <div class="notif-item ${cfg.enabled ? "" : "is-off"}" data-kind="${k.kind}">
+          <div class="notif-head">
+            <div><div class="notif-title">${k.title}</div><div class="setting-hint">${k.desc}</div></div>
+            <input type="checkbox" class="toggle" id="nc-${k.kind}-enabled" aria-label="${k.title} ein- oder ausschalten" ${cfg.enabled ? "checked" : ""}>
+          </div>
+          ${k.hours ? `<div class="notif-when">Senden <input type="number" id="nc-${k.kind}-hours" min="1" max="72" step="1" value="${cfg.hoursBefore}" aria-label="Stunden vor dem Training"> Stunden vor dem Training</div>` : ""}
+          ${bubblesHtml}
+          <div class="notif-actions" style="margin-top:12px;"><button type="button" class="small secondary btn-test-notif" data-kind="${k.kind}">Test an mich senden</button></div>
+        </div>`;
     };
+
+    return `
+      <div id="notif-root">
+        ${state.notifAvailable ? "" : `<div class="error">Benachrichtigungen sind auf dem Server nicht verfügbar (Paket „web-push“ fehlt).</div>`}
+        <p class="muted" style="margin-top:14px;">Spieler schalten Benachrichtigungen selbst auf ihrem Handy ein (Reiter „Trainings“, ganz unten).</p>
+        <div class="status-chips">
+          <span class="chip-info">${st.devices} Gerät${st.devices === 1 ? "" : "e"} · ${st.players} Spieler angemeldet</span>
+          <span class="chip-info ${tickClass}">${tickText}</span>
+        </div>
+        <div class="save-flash" id="nc-flash" aria-live="polite"></div>
+        ${NOTIF_KINDS.map(itemHtml).join("")}
+        <details class="hint-box">
+          <summary>Erinnerung und Übersicht pünktlich senden</summary>
+          <p class="muted" style="margin:0 0 8px;">Diese beiden Nachrichten brauchen einen Wecker, der die App regelmäßig „nachschauen“ lässt. Das erledigt ein kostenloser Dienst:</p>
+          <ol>
+            <li>Auf <b>cron-job.org</b> kostenlos registrieren.</li>
+            <li>Einen neuen „Cronjob“ anlegen und diese Adresse eintragen:</li>
+            <li>Ausführung auf „alle 10 Minuten“ stellen.</li>
+          </ol>
+          <code class="url-box" id="tick-url">${escapeHtml(tickUrl)}</code>
+          <div style="margin:6px 0 12px;"><button type="button" class="small secondary" id="btn-copy-tick-url">Adresse kopieren</button></div>
+          <p class="muted" style="font-size:12px;margin:0 0 10px;">Ohne diesen Wecker schaut Vercel nur einmal am Tag nach, die Nachrichten kommen dann ungenau. Änderungen und Absagen werden immer sofort gesendet.</p>
+        </details>
+      </div>`;
   }
 
   function bindNotifAdminCard() {
-    const save = document.getElementById("btn-save-notif");
-    if (!save) return;
-    const msg = document.getElementById("nc-msg");
-    const setMsg = (text, isError) => { msg.className = isError ? "error" : "info"; msg.textContent = text; };
-
-    const updatePreviews = () => {
-      document.querySelectorAll("[data-notif-text]").forEach((inp) => {
-        const out = document.getElementById(inp.id + "-preview");
-        if (out) out.textContent = "Vorschau: " + renderNotifTpl(inp.value, NOTIF_SAMPLE);
-      });
+    const root = document.getElementById("notif-root");
+    if (!root) return;
+    let flashTimer = null;
+    const flash = (text, isError) => {
+      const el = document.getElementById("nc-flash");
+      if (!el) return;
+      el.className = "save-flash" + (isError ? " err" : "");
+      el.textContent = text;
+      clearTimeout(flashTimer);
+      if (!isError) flashTimer = setTimeout(() => { el.textContent = ""; }, 2500);
     };
-    document.querySelectorAll("[data-notif-text]").forEach((inp) => { inp.oninput = updatePreviews; });
-    updatePreviews();
+    const savePatch = async (patch) => {
+      const r = await api("/notifications/config", { method: "POST", body: patch });
+      state.notifCfg = r.config;
+      const sum = document.querySelector('[data-opt="notif"] .opt-status');
+      if (sum) sum.textContent = notifSummaryText();
+    };
+    const bubbleOf = (key) => NOTIF_KINDS.flatMap((k) => k.bubbles.map((b) => Object.assign({ kind: k.kind }, b))).find((b) => b.key === key);
+    const paintBubble = (key, title, body) => {
+      const el = root.querySelector(`[data-bubble="${key}"]`);
+      if (!el) return;
+      el.querySelector(".bubble-title").textContent = renderNotifTpl(title, NOTIF_SAMPLE);
+      el.querySelector(".bubble-body").textContent = renderNotifTpl(body, NOTIF_SAMPLE);
+    };
+    const paintFromConfig = (key) => {
+      const b = bubbleOf(key); const cfg = state.notifCfg[b.kind];
+      paintBubble(key, cfg[b.fields[0]], cfg[b.fields[1]]);
+    };
+    const paintFromInputs = (key) => {
+      const b = bubbleOf(key);
+      paintBubble(key, document.getElementById(b.ids[0]).value, document.getElementById(b.ids[1]).value);
+    };
+    NOTIF_KINDS.forEach((k) => k.bubbles.forEach((b) => paintFromConfig(b.key)));
 
-    const doSave = async () => {
-      setMsg("", false);
+    // Ein/Aus und Stunden speichern sofort
+    NOTIF_KINDS.forEach((k) => {
+      const item = root.querySelector(`.notif-item[data-kind="${k.kind}"]`);
+      const cb = document.getElementById(`nc-${k.kind}-enabled`);
+      cb.onchange = async () => {
+        const v = cb.checked;
+        item.classList.toggle("is-off", !v);
+        try { await savePatch({ [k.kind]: { enabled: v } }); flash("Gespeichert ✓"); }
+        catch (e) { cb.checked = !v; item.classList.toggle("is-off", v); flash(e.message, true); }
+      };
+      if (k.hours) {
+        const h = document.getElementById(`nc-${k.kind}-hours`);
+        h.onchange = async () => {
+          const n = Number(h.value);
+          if (!Number.isInteger(n) || n < 1 || n > 72) {
+            h.value = state.notifCfg[k.kind].hoursBefore;
+            flash("Bitte eine ganze Zahl zwischen 1 und 72 eintragen.", true);
+            return;
+          }
+          try { await savePatch({ [k.kind]: { hoursBefore: n } }); flash("Gespeichert ✓"); }
+          catch (e) { h.value = state.notifCfg[k.kind].hoursBefore; flash(e.message, true); }
+        };
+      }
+    });
+
+    // Texte: oeffnen / abbrechen / speichern / Standardtext / Bausteine einfuegen
+    const openEditor = (key) => {
+      state.notifEditing = key;
+      root.querySelectorAll(".notif-editor").forEach((ed) => { ed.hidden = ed.id !== `ed-${key}`; });
+    };
+    const closeEditor = (key) => {
+      const ed = document.getElementById(`ed-${key}`);
+      if (ed) ed.hidden = true;
+      if (state.notifEditing === key) state.notifEditing = null;
+    };
+    const resetInputs = (key) => {
+      const b = bubbleOf(key); const cfg = state.notifCfg[b.kind];
+      document.getElementById(b.ids[0]).value = cfg[b.fields[0]];
+      document.getElementById(b.ids[1]).value = cfg[b.fields[1]];
+      paintFromConfig(key);
+    };
+    const saveText = async (key) => {
+      const b = bubbleOf(key);
+      const err = document.getElementById(`ed-${key}-err`);
+      err.textContent = "";
       try {
-        const res = await api("/notifications/config", { method: "POST", body: collectNotifForm() });
-        state.notifCfg = res.config;
+        await savePatch({ [b.kind]: { [b.fields[0]]: document.getElementById(b.ids[0]).value, [b.fields[1]]: document.getElementById(b.ids[1]).value } });
+        resetInputs(key); // zeigt, was der Server wirklich gespeichert hat (leer = Standardtext)
+        closeEditor(key);
+        flash("Text gespeichert ✓");
         return true;
       } catch (e) {
-        setMsg(e.message, true);
+        err.textContent = e.message;
         return false;
       }
     };
+    root.querySelectorAll("[data-edit-text]").forEach((btn) => { btn.onclick = () => { const key = btn.getAttribute("data-edit-text"); if (state.notifEditing === key) { resetInputs(key); closeEditor(key); } else openEditor(key); }; });
+    root.querySelectorAll("[data-cancel-text]").forEach((btn) => { btn.onclick = () => { const key = btn.getAttribute("data-cancel-text"); resetInputs(key); closeEditor(key); }; });
+    root.querySelectorAll("[data-save-text]").forEach((btn) => { btn.onclick = () => saveText(btn.getAttribute("data-save-text")); });
+    root.querySelectorAll("[data-default-text]").forEach((btn) => {
+      btn.onclick = () => {
+        const key = btn.getAttribute("data-default-text"); const b = bubbleOf(key); const d = state.notifDefaults[b.kind];
+        document.getElementById(b.ids[0]).value = d[b.fields[0]];
+        document.getElementById(b.ids[1]).value = d[b.fields[1]];
+        paintFromInputs(key);
+      };
+    });
+    const lastField = {};
+    root.querySelectorAll("[data-field-of]").forEach((inp) => {
+      const key = inp.getAttribute("data-field-of");
+      inp.addEventListener("focus", () => { lastField[key] = inp; });
+      inp.addEventListener("input", () => paintFromInputs(key));
+    });
+    root.querySelectorAll(".notif-editor").forEach((ed) => {
+      const key = ed.id.replace("ed-", "");
+      ed.querySelectorAll("[data-insert]").forEach((chip) => {
+        // mousedown verhindert, dass das Textfeld beim Antippen den Fokus (und die Cursor-Position) verliert
+        chip.addEventListener("mousedown", (e) => e.preventDefault());
+        chip.onclick = () => {
+          const b = bubbleOf(key);
+          const field = lastField[key] || document.getElementById(b.ids[1]);
+          const text = chip.getAttribute("data-insert");
+          field.focus();
+          const start = field.selectionStart == null ? field.value.length : field.selectionStart;
+          const end = field.selectionEnd == null ? field.value.length : field.selectionEnd;
+          field.setRangeText(text, start, end, "end");
+          field.dispatchEvent(new Event("input", { bubbles: true }));
+        };
+      });
+    });
 
-    save.onclick = async () => { if (await doSave()) setMsg("Gespeichert.", false); };
-
-    const reset = document.getElementById("btn-reset-notif-texts");
-    if (reset) reset.onclick = () => {
-      const d = state.notifDefaults;
-      if (!d) return;
-      const set = (id, val) => { document.getElementById(id).value = val; };
-      set("nc-reminder-title", d.reminder.title); set("nc-reminder-body", d.reminder.body);
-      set("nc-change-title", d.change.title); set("nc-change-body", d.change.body);
-      set("nc-change-ctitle", d.change.cancelTitle); set("nc-change-cbody", d.change.cancelBody);
-      set("nc-summary-title", d.summary.title); set("nc-summary-body", d.summary.body);
-      updatePreviews();
-      setMsg("Standardtexte eingesetzt. Mit „Speichern“ übernehmen.", false);
-    };
-
-    document.querySelectorAll(".btn-test-notif").forEach((btn) => {
+    // Test-Nachricht (speichert einen gerade offenen Text vorher)
+    root.querySelectorAll(".btn-test-notif").forEach((btn) => {
       btn.onclick = async () => {
-        if (!(await doSave())) return; // Test verwendet immer die gerade eingetragenen Texte
+        const kind = btn.getAttribute("data-kind");
+        const k = NOTIF_KINDS.find((x) => x.kind === kind);
+        for (const bub of k.bubbles) {
+          if (state.notifEditing === bub.key && !(await saveText(bub.key))) return;
+        }
         btn.disabled = true;
         try {
-          const r = await api("/notifications/test", { method: "POST", body: { kind: btn.getAttribute("data-kind") } });
-          setMsg(`Test gesendet an ${r.sent} von ${r.devices} deiner Geräte.`, false);
+          const r = await api("/notifications/test", { method: "POST", body: { kind } });
+          flash(`Test gesendet an ${r.sent} von ${r.devices} deiner Geräte.`);
         } catch (e) {
-          setMsg(e.message, true);
+          flash(e.message, true);
         }
         btn.disabled = false;
       };
     });
+
+    const copy = document.getElementById("btn-copy-tick-url");
+    if (copy) copy.onclick = async () => {
+      const url = document.getElementById("tick-url").textContent;
+      try { await navigator.clipboard.writeText(url); copy.textContent = "Kopiert ✓"; }
+      catch (e) {
+        const range = document.createRange(); range.selectNodeContents(document.getElementById("tick-url"));
+        const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+        copy.textContent = "Markiert – jetzt kopieren";
+      }
+      setTimeout(() => { copy.textContent = "Adresse kopieren"; }, 2500);
+    };
   }
 
   async function loadLog() {
@@ -1371,6 +1515,15 @@
         ${list.length === 0 ? `<div class="empty">Keine Einträge in diesem Zeitraum.</div>` : html}
         ${list.length > shown.length ? `<div style="margin-top:12px;"><button class="small secondary" id="btn-log-more">Mehr anzeigen (${list.length - shown.length} weitere)</button></div>` : ""}
       </div>`;
+  }
+
+  // Aufklappbarer Bereich in Verwaltung → Optionen (zeigt zugeklappt nur Titel + Kurzstatus)
+  function optSection(key, title, status, bodyHtml) {
+    return `
+      <details class="card opt-section" data-opt="${key}" ${state.optOpen[key] ? "open" : ""}>
+        <summary><span class="opt-title">${escapeHtml(title)}</span><span class="opt-status">${escapeHtml(status || "")}</span></summary>
+        <div class="opt-body">${bodyHtml}</div>
+      </details>`;
   }
 
   function renderSeasonRow(s, canDelete) {
@@ -1674,33 +1827,33 @@
       </div>
 
       <div class="admin-section" data-section="optionen" ${state.adminSection === "optionen" ? "" : "hidden"}>
-      <div class="card">
-        <h2>Sichtbarkeit</h2>
-        <p class="muted">Diese Schalter gelten für alle Trainings und alle Spieler.</p>
-        <label class="switch-row">
-          <input type="checkbox" id="toggle-reasons-trainer-only" ${state.reasonsTrainerOnly ? "checked" : ""}>
-          Gründe bei „Vielleicht“ und „Absage“ nur für Trainer sichtbar
-        </label>
-        <p class="muted" style="margin:-4px 0 8px 24px;font-size:12px;">Spieler sehen dann nur ihren eigenen Grund. Die Namen und Zähler bleiben für alle sichtbar.</p>
-        <label class="switch-row">
-          <input type="checkbox" id="toggle-match-banner" ${state.showMatchBanner ? "checked" : ""}>
-          Spielvorschau im Trainingsplan anzeigen
-        </label>
-      </div>
+      ${optSection("sicht", "Sichtbarkeit", state.reasonsTrainerOnly ? "Gründe nur für Trainer" : "Gründe für alle", `
+        <div class="setting-row">
+          <div>
+            <div class="setting-title">Gründe nur für Trainer sichtbar</div>
+            <div class="setting-hint">Spieler sehen bei „Vielleicht“ und „Absage“ nur ihren eigenen Grund. Namen und Zähler bleiben für alle sichtbar.</div>
+          </div>
+          <input type="checkbox" class="toggle" id="toggle-reasons-trainer-only" aria-label="Gründe nur für Trainer sichtbar" ${state.reasonsTrainerOnly ? "checked" : ""}>
+        </div>
+        <div class="setting-row">
+          <div>
+            <div class="setting-title">Spielvorschau anzeigen</div>
+            <div class="setting-hint">Zeigt im Trainingsplan oben das nächste Spiel.</div>
+          </div>
+          <input type="checkbox" class="toggle" id="toggle-match-banner" aria-label="Spielvorschau anzeigen" ${state.showMatchBanner ? "checked" : ""}>
+        </div>`)}
 
-      ${renderNotifAdminCard()}
+      ${optSection("notif", "Benachrichtigungen", notifSummaryText(), renderNotifAdminCard())}
 
-      <div class="card">
-        <h2>Vereinswort</h2>
+      ${optSection("wort", "Vereinswort", state.clubWord ? "festgelegt" : "nicht festgelegt", `
         <p class="muted">Wer sich neu registrieren möchte, muss dieses Wort eingeben. Bereits registrierte Spieler sind nicht betroffen. Leer lassen = kein Vereinswort nötig.</p>
         <label>Vereinswort</label>
         <input type="text" id="club-word-input" maxlength="40" autocomplete="off" value="${escapeHtml(state.clubWord)}" placeholder="z. B. Forelle">
         <div style="margin-top:10px;"><button class="small" id="btn-save-club-word">Speichern</button></div>
         <div id="club-word-msg" class="info"></div>
-      </div>
+      `)}
 
-      <div class="card">
-        <h2>Saison</h2>
+      ${optSection("saison", "Saisonen", currentSeason ? currentSeason.name : "keine läuft gerade", `
         <p class="muted">Trainings/Spiele werden automatisch anhand ihres Datums der passenden Saison zugerechnet. Die Statistik startet dadurch mit jeder neuen Saison von selbst wieder bei null.</p>
         ${currentSeason
           ? `<p style="margin-bottom:2px;">Aktuell läuft:</p>${renderSeasonRow(currentSeason, false)}`
@@ -1719,7 +1872,7 @@
         </div>
         <div id="season-error" class="error"></div>
         <div style="margin-top:10px;"><button class="small" id="btn-add-season">Saison anlegen</button></div>
-      </div>
+      `)}
       </div>
     `;
   }
@@ -1837,6 +1990,9 @@
       render();
     };
 
+    document.querySelectorAll("details.opt-section").forEach((d) => {
+      d.addEventListener("toggle", () => { state.optOpen[d.getAttribute("data-opt")] = d.open; });
+    });
     bindNotifAdminCard();
 
     const saveClubWordBtn = document.getElementById("btn-save-club-word");
