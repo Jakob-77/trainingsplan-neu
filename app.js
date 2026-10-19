@@ -45,6 +45,16 @@
     clubWordRequired: null, // Login-Maske: true = Feld zeigen, false = nicht, null = unbekannt (Feld sicherheitshalber zeigen)
     clubWord: "", // nur Trainer: aktuell festgelegtes Vereinswort
     editingSeasonId: null, // welche Saison gerade in Verwaltung → Optionen bearbeitet wird
+    push: {
+      supported: false, standalone: false, isIOS: false, permission: "default", subscribed: false,
+      available: false, publicKey: null, types: {}, prefs: { reminder: true, change: true, summary: true },
+      isAdmin: false, busy: false, error: "",
+    },
+    notifCfg: null, // Trainer: Einstellungen der Benachrichtigungen (null = noch nicht geladen)
+    notifDefaults: null,
+    notifPlaceholders: null,
+    notifStatus: null,
+    notifAvailable: true,
     logEntries: null, // Protokoll (nur Trainer), null = noch nicht geladen
     logError: "",
     logFilter: "alle", // alle | rsvp | verwaltung | konto
@@ -388,8 +398,11 @@
         <button id="btn-logout">Abmelden</button>
       </div>`;
     document.getElementById("btn-logout").onclick = async () => {
+      await pushDetachOnLogout();
       await api("/logout", { method: "POST" });
       state.me = null;
+      state.push.subscribed = false;
+      state.notifCfg = null;
       await loadPublicInfo();
       render();
     };
@@ -482,7 +495,7 @@
     state.loading = true;
     render();
     await loadTrainings();
-    Promise.all([loadMatches(), loadSettings()]).then(render); // im Hintergrund, blockiert den Rest nicht
+    Promise.all([loadMatches(), loadSettings(), loadPushState()]).then(render); // im Hintergrund, blockiert den Rest nicht
     state.loading = false;
     render();
   }
@@ -522,11 +535,12 @@
       if (state.matches.length === 0) await loadMatches();
       if (state.seasons.length === 0) await loadSeasons();
       if (state.adminSection === "protokoll") await loadLog();
+      await loadNotifConfig();
       state.loading = false; render();
     };
 
     if (state.view === "admin") bindAdmin();
-    else if (state.view === "home") bindTrainings();
+    else if (state.view === "home") { bindTrainings(); bindPushCard(); }
     else if (state.view === "stats") bindStats();
   }
 
@@ -620,7 +634,7 @@
         ? `<div class="card"><p class="empty">Keine Trainings in dieser Woche.</p></div>`
         : visible.map((t) => renderTrainingCard(t, next)).join("");
 
-    return renderNextTrainingBanner() + renderNextMatchBanner() + renderWeekNav() + list;
+    return renderNextTrainingBanner() + renderNextMatchBanner() + renderWeekNav() + list + renderPushCard();
   }
 
   function renderTrainingCard(t, next) {
@@ -978,6 +992,324 @@
   }
 
   // ---------- Verwaltung (ausschließlich für Trainer sichtbar) ----------
+
+  // ---------- Benachrichtigungen (Spieler-Seite) ----------
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  async function loadPushState() {
+    const p = state.push;
+    p.supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+    p.standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+    p.isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    p.permission = p.supported ? Notification.permission : "unsupported";
+    p.subscribed = false;
+    try {
+      const cfg = await api("/push/config");
+      p.available = !!cfg.available;
+      p.publicKey = cfg.publicKey;
+      p.types = cfg.types || {};
+      p.prefs = cfg.prefs || p.prefs;
+      p.isAdmin = !!cfg.isAdmin;
+    } catch (e) {
+      p.available = false;
+    }
+    if (p.supported && p.permission === "granted") {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription();
+        p.subscribed = !!sub;
+        // Gerät beim aktuell angemeldeten Spieler (neu) eintragen - z. B. nach Konto-Wechsel am selben Handy
+        if (sub) await api("/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } }).catch(() => {});
+      } catch (e) {
+        p.subscribed = false;
+      }
+    }
+  }
+
+  async function enablePush() {
+    const p = state.push;
+    p.busy = true; p.error = "";
+    render();
+    try {
+      const perm = await Notification.requestPermission();
+      p.permission = perm;
+      if (perm !== "granted") {
+        p.error = perm === "denied" ? "" : "Die Erlaubnis wurde nicht erteilt.";
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const options = { userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(p.publicKey) };
+        try {
+          sub = await reg.pushManager.subscribe(options);
+        } catch (e) {
+          if (e && e.name === "InvalidStateError") {
+            const old = await reg.pushManager.getSubscription();
+            if (old) await old.unsubscribe();
+            sub = await reg.pushManager.subscribe(options);
+          } else {
+            throw e;
+          }
+        }
+      }
+      await api("/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } });
+      p.subscribed = true;
+    } catch (e) {
+      p.error = "Das hat nicht geklappt: " + (e && e.message ? e.message : "unbekannter Fehler");
+    } finally {
+      p.busy = false;
+      render();
+    }
+  }
+
+  async function disablePush() {
+    const p = state.push;
+    p.busy = true; p.error = "";
+    render();
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        const endpoint = sub.endpoint;
+        await sub.unsubscribe();
+        await api("/push/unsubscribe", { method: "POST", body: { endpoint } });
+      }
+      p.subscribed = false;
+    } catch (e) {
+      p.error = "Das hat nicht geklappt: " + (e && e.message ? e.message : "unbekannter Fehler");
+    } finally {
+      p.busy = false;
+      render();
+    }
+  }
+
+  // Beim Abmelden dieses Gerät beim bisherigen Konto austragen, damit es keine fremden Nachrichten mehr bekommt
+  async function pushDetachOnLogout() {
+    try {
+      if (!state.push.supported || Notification.permission !== "granted") return;
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      if (sub) await api("/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } });
+    } catch (e) { /* nicht wichtig */ }
+  }
+
+  function renderPushCard() {
+    const p = state.push;
+    if (!p.available) return "";
+    const wants = [];
+    if (p.types.reminder) wants.push("eine Erinnerung, wenn du noch nicht abgestimmt hast");
+    if (p.types.change) wants.push("eine Nachricht, wenn ein Training geändert oder abgesagt wird");
+    if (p.types.summary) wants.push("die Übersicht der Zusagen (Trainer)");
+    let body;
+    if (!p.supported) {
+      body = p.isIOS && !p.standalone
+        ? `<p class="muted">Auf dem iPhone funktionieren Benachrichtigungen, wenn die App auf dem Home-Bildschirm liegt: In Safari auf „Teilen“ tippen, „Zum Home-Bildschirm“ wählen und die App von dort öffnen.</p>`
+        : `<p class="muted">Dieses Gerät oder dieser Browser unterstützt keine Benachrichtigungen.</p>`;
+    } else if (p.permission === "denied") {
+      body = `<p class="muted">Benachrichtigungen sind für diese App blockiert. Erlaube sie in den Einstellungen deines Handys oder Browsers und lade die Seite neu.</p>`;
+    } else if (!p.subscribed) {
+      body = `
+        <p class="muted">Du bekommst ${wants.join(", ")}.</p>
+        <button id="btn-push-enable" ${p.busy ? "disabled" : ""}>${p.busy ? "Einen Moment …" : "Benachrichtigungen aktivieren"}</button>`;
+    } else {
+      const sw = (key, label) => `<label class="switch-row"><input type="checkbox" data-push-pref="${key}" ${p.prefs[key] ? "checked" : ""}> ${label}</label>`;
+      body = `
+        <p class="muted" style="margin-bottom:4px;">Auf diesem Gerät eingeschaltet. Du bekommst:</p>
+        ${p.types.reminder ? sw("reminder", "Erinnerung, wenn ich noch nicht abgestimmt habe") : ""}
+        ${p.types.change ? sw("change", "Änderungen und Absagen von Trainings") : ""}
+        ${p.types.summary ? sw("summary", "Übersicht der Zusagen (Trainer)") : ""}
+        <div style="margin-top:10px;"><button class="small secondary" id="btn-push-disable" ${p.busy ? "disabled" : ""}>Auf diesem Gerät ausschalten</button></div>`;
+    }
+    return `
+      <div class="card">
+        <h2>Benachrichtigungen</h2>
+        ${body}
+        ${p.error ? `<div class="error">${escapeHtml(p.error)}</div>` : ""}
+      </div>`;
+  }
+
+  function bindPushCard() {
+    const en = document.getElementById("btn-push-enable");
+    if (en) en.onclick = enablePush;
+    const dis = document.getElementById("btn-push-disable");
+    if (dis) dis.onclick = disablePush;
+    document.querySelectorAll("[data-push-pref]").forEach((cb) => {
+      cb.onchange = async () => {
+        const key = cb.getAttribute("data-push-pref");
+        const value = cb.checked;
+        state.push.prefs[key] = value;
+        try {
+          await api("/push/prefs", { method: "POST", body: { [key]: value } });
+        } catch (e) {
+          state.push.prefs[key] = !value;
+          cb.checked = !value;
+          alert(e.message);
+        }
+      };
+    });
+  }
+
+  // ---------- Benachrichtigungen (Trainer-Einstellungen) ----------
+
+  async function loadNotifConfig() {
+    try {
+      const data = await api("/notifications/config");
+      state.notifCfg = data.config;
+      state.notifDefaults = data.defaults;
+      state.notifPlaceholders = data.placeholders;
+      state.notifStatus = data.status;
+      state.notifAvailable = data.available !== false;
+    } catch (e) {
+      /* bleibt auf "Lade …" bzw. alter Stand */
+    }
+  }
+
+  const NOTIF_SAMPLE = {
+    tag: "morgen", Tag: "Morgen", datum: "Do. 08.10.2026", zeit: "19:00", ort: "Sportplatz",
+    aenderung: "Neuer Termin: Do. 08.10.2026 18:30 Uhr (vorher: Do. 08.10.2026 19:00 Uhr)",
+    zusagen: 11, vielleicht: 3, absagen: 2, offen: 6, gaeste: 1,
+  };
+  const renderNotifTpl = (str, vars) =>
+    String(str || "").replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
+
+  function renderNotifAdminCard() {
+    const c = state.notifCfg;
+    if (!c) return `<div class="card"><h2>Benachrichtigungen</h2><p class="muted"><span class="spinner"></span> Lade …</p></div>`;
+    const st = state.notifStatus || { devices: 0, players: 0 };
+    const tickUrl = `${location.origin}/api/cron/tick`;
+    const ph = (kind) => (state.notifPlaceholders && state.notifPlaceholders[kind] || []).map((x) => `{${x}}`).join(" ");
+    const field = (id, label, value, max) => `
+      <label for="${id}">${label}</label>
+      <input type="text" id="${id}" maxlength="${max}" value="${escapeHtml(value)}" data-notif-text>
+      <div class="muted" id="${id}-preview" style="font-size:12px;margin-top:3px;"></div>`;
+    const hours = (kind, label) => `
+      <div class="row" style="align-items:flex-end;">
+        <div><label for="nc-${kind}-hours">${label}</label>
+          <input type="number" id="nc-${kind}-hours" min="1" max="72" step="1" value="${c[kind].hoursBefore}"></div>
+      </div>`;
+    const testBtn = (kind) => `<button class="small secondary btn-test-notif" data-kind="${kind}">Test an mich senden</button>`;
+
+    return `
+      <div class="card">
+        <h2>Benachrichtigungen</h2>
+        ${state.notifAvailable ? "" : `<div class="error">Benachrichtigungen sind auf dem Server nicht verfügbar (Paket „web-push“ fehlt).</div>`}
+        <p class="muted">${st.devices} Gerät${st.devices === 1 ? "" : "e"} von ${st.players} Spieler${st.players === 1 ? "" : "n"} angemeldet. Jeder Spieler schaltet Benachrichtigungen selbst im Reiter „Trainings“ (ganz unten) ein und kann einzelne Arten abwählen.</p>
+
+        <label class="switch-row"><input type="checkbox" id="nc-reminder-enabled" ${c.reminder.enabled ? "checked" : ""}> <b>Erinnerung</b> an Spieler, die noch nicht abgestimmt haben</label>
+        ${hours("reminder", "Stunden vor Trainingsbeginn")}
+        <details style="margin:6px 0 14px;"><summary class="muted" style="cursor:pointer;">Text bearbeiten</summary>
+          ${field("nc-reminder-title", "Titel", c.reminder.title, 80)}
+          ${field("nc-reminder-body", "Text", c.reminder.body, 200)}
+          <p class="muted" style="font-size:12px;">Platzhalter: ${ph("reminder")}</p>
+        </details>
+        <div style="margin-bottom:14px;">${testBtn("reminder")}</div>
+
+        <label class="switch-row"><input type="checkbox" id="nc-change-enabled" ${c.change.enabled ? "checked" : ""}> <b>Änderung oder Absage</b> eines Trainings an alle (sofort)</label>
+        <details style="margin:6px 0 14px;"><summary class="muted" style="cursor:pointer;">Texte bearbeiten</summary>
+          ${field("nc-change-title", "Titel bei Änderung", c.change.title, 80)}
+          ${field("nc-change-body", "Text bei Änderung", c.change.body, 200)}
+          ${field("nc-change-ctitle", "Titel bei Absage", c.change.cancelTitle, 80)}
+          ${field("nc-change-cbody", "Text bei Absage", c.change.cancelBody, 200)}
+          <p class="muted" style="font-size:12px;">Platzhalter: ${ph("change")}</p>
+        </details>
+        <div style="margin-bottom:14px;">${testBtn("change")}</div>
+
+        <label class="switch-row"><input type="checkbox" id="nc-summary-enabled" ${c.summary.enabled ? "checked" : ""}> <b>Übersicht der Zusagen</b> für Trainer</label>
+        ${hours("summary", "Stunden vor Trainingsbeginn")}
+        <details style="margin:6px 0 14px;"><summary class="muted" style="cursor:pointer;">Text bearbeiten</summary>
+          ${field("nc-summary-title", "Titel", c.summary.title, 80)}
+          ${field("nc-summary-body", "Text", c.summary.body, 200)}
+          <p class="muted" style="font-size:12px;">Platzhalter: ${ph("summary")}</p>
+        </details>
+        <div style="margin-bottom:14px;">${testBtn("summary")}</div>
+
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="small" id="btn-save-notif">Speichern</button>
+          <button class="small secondary" id="btn-reset-notif-texts">Standardtexte einsetzen</button>
+        </div>
+        <div id="nc-msg" class="info"></div>
+
+        <p class="muted" style="font-size:12px;margin-top:14px;"><b>Pünktlich senden:</b> Erinnerung und Zusagen-Übersicht werden von einem regelmäßigen Aufruf ausgelöst. Ruf dazu alle 10 bis 15 Minuten diese Adresse auf, zum Beispiel mit dem kostenlosen Dienst cron-job.org:</p>
+        <code class="url-box">${escapeHtml(tickUrl)}</code>
+        <p class="muted" style="font-size:12px;">Ohne diesen Aufruf prüft Vercel nur einmal täglich, die beiden Benachrichtigungen kommen dann verspätet. Änderungen und Absagen werden immer sofort gesendet.</p>
+      </div>`;
+  }
+
+  function collectNotifForm() {
+    const v = (id) => document.getElementById(id).value;
+    const chk = (id) => document.getElementById(id).checked;
+    return {
+      reminder: { enabled: chk("nc-reminder-enabled"), hoursBefore: Number(v("nc-reminder-hours")), title: v("nc-reminder-title"), body: v("nc-reminder-body") },
+      change: { enabled: chk("nc-change-enabled"), title: v("nc-change-title"), body: v("nc-change-body"), cancelTitle: v("nc-change-ctitle"), cancelBody: v("nc-change-cbody") },
+      summary: { enabled: chk("nc-summary-enabled"), hoursBefore: Number(v("nc-summary-hours")), title: v("nc-summary-title"), body: v("nc-summary-body") },
+    };
+  }
+
+  function bindNotifAdminCard() {
+    const save = document.getElementById("btn-save-notif");
+    if (!save) return;
+    const msg = document.getElementById("nc-msg");
+    const setMsg = (text, isError) => { msg.className = isError ? "error" : "info"; msg.textContent = text; };
+
+    const updatePreviews = () => {
+      document.querySelectorAll("[data-notif-text]").forEach((inp) => {
+        const out = document.getElementById(inp.id + "-preview");
+        if (out) out.textContent = "Vorschau: " + renderNotifTpl(inp.value, NOTIF_SAMPLE);
+      });
+    };
+    document.querySelectorAll("[data-notif-text]").forEach((inp) => { inp.oninput = updatePreviews; });
+    updatePreviews();
+
+    const doSave = async () => {
+      setMsg("", false);
+      try {
+        const res = await api("/notifications/config", { method: "POST", body: collectNotifForm() });
+        state.notifCfg = res.config;
+        return true;
+      } catch (e) {
+        setMsg(e.message, true);
+        return false;
+      }
+    };
+
+    save.onclick = async () => { if (await doSave()) setMsg("Gespeichert.", false); };
+
+    const reset = document.getElementById("btn-reset-notif-texts");
+    if (reset) reset.onclick = () => {
+      const d = state.notifDefaults;
+      if (!d) return;
+      const set = (id, val) => { document.getElementById(id).value = val; };
+      set("nc-reminder-title", d.reminder.title); set("nc-reminder-body", d.reminder.body);
+      set("nc-change-title", d.change.title); set("nc-change-body", d.change.body);
+      set("nc-change-ctitle", d.change.cancelTitle); set("nc-change-cbody", d.change.cancelBody);
+      set("nc-summary-title", d.summary.title); set("nc-summary-body", d.summary.body);
+      updatePreviews();
+      setMsg("Standardtexte eingesetzt. Mit „Speichern“ übernehmen.", false);
+    };
+
+    document.querySelectorAll(".btn-test-notif").forEach((btn) => {
+      btn.onclick = async () => {
+        if (!(await doSave())) return; // Test verwendet immer die gerade eingetragenen Texte
+        btn.disabled = true;
+        try {
+          const r = await api("/notifications/test", { method: "POST", body: { kind: btn.getAttribute("data-kind") } });
+          setMsg(`Test gesendet an ${r.sent} von ${r.devices} deiner Geräte.`, false);
+        } catch (e) {
+          setMsg(e.message, true);
+        }
+        btn.disabled = false;
+      };
+    });
+  }
 
   async function loadLog() {
     try {
@@ -1356,6 +1688,8 @@
         </label>
       </div>
 
+      ${renderNotifAdminCard()}
+
       <div class="card">
         <h2>Vereinswort</h2>
         <p class="muted">Wer sich neu registrieren möchte, muss dieses Wort eingeben. Bereits registrierte Spieler sind nicht betroffen. Leer lassen = kein Vereinswort nötig.</p>
@@ -1502,6 +1836,8 @@
       state.logShown += 150;
       render();
     };
+
+    bindNotifAdminCard();
 
     const saveClubWordBtn = document.getElementById("btn-save-club-word");
     if (saveClubWordBtn) {
@@ -2039,7 +2375,7 @@
       if (!state.me) await loadPublicInfo();
       if (state.me) {
         await loadTrainings();
-        Promise.all([loadMatches(), loadSettings()]).then(render); // im Hintergrund, blockiert den Rest nicht
+        Promise.all([loadMatches(), loadSettings(), loadPushState()]).then(render); // im Hintergrund, blockiert den Rest nicht
       }
     } catch (e) {
       // ignore

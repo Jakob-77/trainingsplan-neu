@@ -138,6 +138,34 @@ function initSchema() {
         )
       `);
       await client.execute("CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log(created_at)");
+      // Benachrichtigungen (Web-Push): angemeldete Geraete, persoenliche Schalter und "schon gesendet"-Marken
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS push_subscriptions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          player_id INTEGER NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+          endpoint TEXT NOT NULL UNIQUE,
+          p256dh TEXT NOT NULL,
+          auth TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+      `);
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS notify_prefs (
+          player_id INTEGER PRIMARY KEY REFERENCES players(id) ON DELETE CASCADE,
+          pref_reminder INTEGER NOT NULL DEFAULT 1,
+          pref_change INTEGER NOT NULL DEFAULT 1,
+          pref_summary INTEGER NOT NULL DEFAULT 1
+        )
+      `);
+      await client.execute(`
+        CREATE TABLE IF NOT EXISTS notification_sent (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          kind TEXT NOT NULL,
+          training_id INTEGER NOT NULL REFERENCES trainings(id) ON DELETE CASCADE,
+          sent_at TEXT NOT NULL DEFAULT (datetime('now')),
+          UNIQUE(kind, training_id)
+        )
+      `);
       // Migration fuer Datenbanken aus der Vor-Vercel-Version (falls per --from-file importiert):
       // is_guest wird nicht mehr gebraucht, macht aber nichts, wenn die Spalte noch existiert.
       await ensureColumn("players", "is_admin", "INTEGER NOT NULL DEFAULT 0");

@@ -98,9 +98,10 @@ manifest.json, sw.js                 PWA-Funktionalität (installierbar)
 icons/                                App-Icons mit eurem Vereinswappen
 api/index.js                          Die komplette Backend-Logik als eine Vercel-Funktion
 db.js                                 Datenbankzugriff (Turso)
+push.js                               Benachrichtigungen (Web-Push): Einstellungen, Texte, Versand, zeitgesteuerte Prüfung
 auth.js                               Login über signiertes Cookie
 dev-server.js                         Nur für lokale Tests, auf Vercel nicht verwendet
-vercel.json                           Sorgt dafür, dass alle /api/... Aufrufe zur Funktion finden
+vercel.json                           Leitet alle /api/... Aufrufe zur Funktion und enthält den täglichen Cron-Aufruf für Benachrichtigungen
 ```
 
 ## Für einen anderen Verein oder eine andere Mannschaft nutzen
@@ -344,3 +345,24 @@ Ein vollständiger Live-Test mit `npm install` gegen eine echte Turso-Datenbank 
 Umgebung nicht möglich, da hier kein Internetzugriff besteht. Macht nach dem ersten Deployment
 einen kurzen Durchklick-Test: Registrieren → Training anlegen → Zusage/Absage mit Grund →
 Übersicht ansehen → Gastspieler hinzufügen/löschen → Statistik ansehen.
+
+
+## Benachrichtigungen
+
+Drei Arten, alle in der Verwaltung unter **Optionen → Benachrichtigungen** ein-/ausschaltbar, mit eigener Vorlaufzeit und
+eigenen Texten (Platzhalter wie `{tag}`, `{zeit}`, `{ort}`):
+
+- **Erinnerung** an Spieler, die noch nicht abgestimmt haben (X Stunden vor Trainingsbeginn)
+- **Änderung/Absage** eines Trainings an alle (sofort)
+- **Zusagen-Übersicht** für Trainer (X Stunden vor Trainingsbeginn)
+
+Jeder Spieler schaltet sie auf seinem Gerät selbst ein (Reiter *Trainings*, ganz unten) und kann einzelne Arten abwählen.
+Auf dem iPhone funktioniert das nur, wenn die App über „Zum Home-Bildschirm“ installiert ist.
+
+**Zeitgesteuerte Benachrichtigungen:** Erinnerung und Zusagen-Übersicht werden vom Aufruf `/api/cron/tick` ausgelöst.
+Vercel (Gratis-Tarif) ruft ihn nur einmal täglich auf (siehe `vercel.json`). Damit die Benachrichtigungen pünktlich kommen,
+am besten zusätzlich einen kostenlosen Dienst wie cron-job.org einrichten, der `https://EURE-ADRESSE/api/cron/tick`
+alle 10 bis 15 Minuten aufruft. Der Aufruf ist idempotent: jede Benachrichtigung wird pro Training nur einmal gesendet.
+
+Die Absender-Schlüssel (VAPID) werden beim ersten Gebrauch automatisch erzeugt und in der Datenbank gespeichert.
+Optional können sie als `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (und `VAPID_SUBJECT`) in Vercel hinterlegt werden.

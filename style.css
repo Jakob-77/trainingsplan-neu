@@ -181,3 +181,5 @@ tr:last-child td{border-bottom:none;}
 .log-tag-vielleicht{border-left-color:var(--warn);}
 .log-tag-absage{border-left-color:var(--danger);}
 .log-konto{border-left-color:#8d96a0;}
+
+.url-box{display:block;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font-size:12px;margin:6px 0;user-select:all;}

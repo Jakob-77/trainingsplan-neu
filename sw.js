@@ -1,4 +1,4 @@
-const CACHE_NAME = "trainingsplaner-v21";
+const CACHE_NAME = "trainingsplaner-v22";
 const SHELL_FILES = [
   "/",
   "/style.css",
@@ -42,5 +42,38 @@ self.addEventListener("fetch", (event) => {
         return res;
       })
       .catch(() => caches.match(event.request))
+  );
+});
+
+// ---------- Benachrichtigungen (Web-Push) ----------
+// Jede eingehende Nachricht MUSS angezeigt werden (Vorgabe von iOS/Chrome), sonst entzieht das System die Erlaubnis.
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch (e) {
+    data = { body: event.data ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "Trainingsplaner", {
+      body: data.body || "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/badge-96.png",
+      tag: data.tag || undefined,
+      data: { url: data.url || "/" },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if ("focus" in client) return client.focus();
+      }
+      return self.clients.openWindow(url);
+    })
   );
 });

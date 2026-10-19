@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const db = require("../db");
 const auth = require("../auth");
+const push = require("../push");
 
 const app = express();
 app.use(express.json());
@@ -84,6 +85,8 @@ async function logActivity(actor, category, text, tag) {
     console.error("Protokoll-Eintrag fehlgeschlagen:", e);
   }
 }
+
+push.setLogger(logActivity);
 
 // Vergleicht alt/neu und liefert z. B. "Ort: Platz A → Halle; Notiz geändert" (leer = keine Änderung)
 function diffText(pairs) {
@@ -363,6 +366,8 @@ app.delete("/api/players/:id", requireLogin, requireAdmin, async (req, res) => {
   const p = await db.get("SELECT id, name FROM players WHERE id = ?", [id]);
   if (!p) return res.status(404).json({ error: "Spieler nicht gefunden." });
   const respCount = await db.get("SELECT COUNT(*) AS c FROM responses WHERE player_id = ?", [id]);
+  await db.run("DELETE FROM push_subscriptions WHERE player_id = ?", [id]);
+  await db.run("DELETE FROM notify_prefs WHERE player_id = ?", [id]);
   await db.run("DELETE FROM players WHERE id = ?", [id]);
   await logActivity(await actorOf(req), "verwaltung", `Spieler gelöscht: ${p.name} (${respCount ? respCount.c : 0} Rückmeldungen mit entfernt)`);
   res.json({ ok: true });
@@ -451,6 +456,19 @@ app.put("/api/trainings/:id", requireLogin, requireAdmin, async (req, res) => {
   if (changes) {
     await logActivity(await actorOf(req), "verwaltung", `Training bearbeitet (${fmtDateTime(existing.date, existing.time)}): ${changes}`);
   }
+  // Wurde der Zeitpunkt verschoben, sollen Erinnerung/Uebersicht fuer den NEUEN Termin wieder gesendet werden
+  if (existing.date !== date || existing.time !== time) {
+    await db.run("DELETE FROM notification_sent WHERE training_id = ?", [id]);
+  }
+  try {
+    await push.notifyTrainingChanged({
+      before: existing,
+      after: { id, date, time, ort: ort.trim(), note: (note || "").trim() || null },
+      actorId: req.playerId,
+    });
+  } catch (e) {
+    console.error("Benachrichtigung (Änderung) fehlgeschlagen:", e);
+  }
   res.json({ ok: true });
 });
 
@@ -464,6 +482,11 @@ app.delete("/api/trainings/:id", requireLogin, requireAdmin, async (req, res) =>
       "verwaltung",
       `Training gelöscht: ${fmtDateTime(old.date, old.time)} Uhr, ${old.ort} (${respCount ? respCount.c : 0} Rückmeldungen mit entfernt)`
     );
+    try {
+      await push.notifyTrainingCancelled({ training: old, actorId: req.playerId });
+    } catch (e) {
+      console.error("Benachrichtigung (Absage) fehlgeschlagen:", e);
+    }
   }
   res.json({ ok: true });
 });
@@ -857,5 +880,120 @@ app.get("/api/log", requireLogin, requireAdmin, async (req, res) => {
     })),
   });
 });
+
+// ---------- Benachrichtigungen ----------
+
+const PREF_COLUMNS = { reminder: "pref_reminder", change: "pref_change", summary: "pref_summary" };
+
+async function readPrefs(playerId) {
+  const row = await db.get("SELECT pref_reminder, pref_change, pref_summary FROM notify_prefs WHERE player_id = ?", [playerId]);
+  return {
+    reminder: row ? !!row.pref_reminder : true,
+    change: row ? !!row.pref_change : true,
+    summary: row ? !!row.pref_summary : true,
+  };
+}
+
+// Fuer jeden angemeldeten Spieler: Ist die Funktion nutzbar, welcher Schluessel, welche Arten sind eingeschaltet, eigene Schalter
+app.get("/api/push/config", requireLogin, async (req, res) => {
+  const cfg = await push.readConfig();
+  const me = await db.get("SELECT is_admin FROM players WHERE id = ?", [req.playerId]);
+  const isAdmin = !!(me && me.is_admin);
+  const types = { reminder: cfg.reminder.enabled, change: cfg.change.enabled, summary: cfg.summary.enabled && isAdmin };
+  const vapid = await push.getVapid();
+  res.json({
+    available: !!vapid && (types.reminder || types.change || types.summary),
+    publicKey: vapid ? vapid.publicKey : null,
+    types,
+    isAdmin,
+    prefs: await readPrefs(req.playerId),
+  });
+});
+
+app.post("/api/push/subscribe", requireLogin, async (req, res) => {
+  const sub = (req.body || {}).subscription;
+  if (!sub || typeof sub.endpoint !== "string" || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    return res.status(400).json({ error: "Ungültige Anmeldung für Benachrichtigungen." });
+  }
+  if (sub.endpoint.length > 1000) return res.status(400).json({ error: "Ungültige Anmeldung für Benachrichtigungen." });
+  // Pro Geraet (endpoint) genau ein Eintrag - meldet sich auf demselben Geraet jemand anderes an, wechselt der Besitzer
+  await db.run(
+    `INSERT INTO push_subscriptions (player_id, endpoint, p256dh, auth) VALUES (?, ?, ?, ?)
+     ON CONFLICT(endpoint) DO UPDATE SET player_id = excluded.player_id, p256dh = excluded.p256dh, auth = excluded.auth`,
+    [req.playerId, sub.endpoint, sub.keys.p256dh, sub.keys.auth]
+  );
+  await db.run("INSERT OR IGNORE INTO notify_prefs (player_id) VALUES (?)", [req.playerId]);
+  await logActivity(await actorOf(req), "konto", "Benachrichtigungen auf einem Gerät eingeschaltet");
+  res.json({ ok: true });
+});
+
+app.post("/api/push/unsubscribe", requireLogin, async (req, res) => {
+  const { endpoint } = req.body || {};
+  if (typeof endpoint !== "string") return res.status(400).json({ error: "Ungültige Anfrage." });
+  const r = await db.run("DELETE FROM push_subscriptions WHERE endpoint = ? AND player_id = ?", [endpoint, req.playerId]);
+  if (r.rowsAffected > 0) await logActivity(await actorOf(req), "konto", "Benachrichtigungen auf einem Gerät ausgeschaltet");
+  res.json({ ok: true });
+});
+
+app.post("/api/push/prefs", requireLogin, async (req, res) => {
+  const body = req.body || {};
+  await db.run("INSERT OR IGNORE INTO notify_prefs (player_id) VALUES (?)", [req.playerId]);
+  for (const kind of Object.keys(PREF_COLUMNS)) {
+    if (body[kind] !== undefined) {
+      await db.run(`UPDATE notify_prefs SET ${PREF_COLUMNS[kind]} = ? WHERE player_id = ?`, [body[kind] ? 1 : 0, req.playerId]);
+    }
+  }
+  res.json({ ok: true, prefs: await readPrefs(req.playerId) });
+});
+
+// Trainer: Einstellungen lesen/aendern (ein/aus, Vorlaufzeit, Texte)
+app.get("/api/notifications/config", requireLogin, requireAdmin, async (req, res) => {
+  res.json({
+    config: await push.readConfig(),
+    defaults: push.DEFAULTS,
+    placeholders: push.PLACEHOLDERS,
+    status: await push.getStatus(),
+    available: push.isAvailable(),
+  });
+});
+
+app.post("/api/notifications/config", requireLogin, requireAdmin, async (req, res) => {
+  const { clean, error } = push.validatePatch(req.body || {});
+  if (error) return res.status(400).json({ error });
+  const before = await push.readConfig();
+  const after = await push.saveConfig(clean);
+  const LABEL = { reminder: "Erinnerung", change: "Änderung", summary: "Zusagen-Übersicht" };
+  const changes = [];
+  for (const kind of Object.keys(clean)) {
+    for (const key of Object.keys(clean[kind])) {
+      if (JSON.stringify(before[kind][key]) === JSON.stringify(after[kind][key])) continue;
+      if (key === "enabled") changes.push(`${LABEL[kind]} ${after[kind][key] ? "eingeschaltet" : "ausgeschaltet"}`);
+      else if (key === "hoursBefore") changes.push(`${LABEL[kind]}: Vorlaufzeit ${before[kind][key]} → ${after[kind][key]} Std.`);
+      else changes.push(`${LABEL[kind]}: Text geändert`);
+    }
+  }
+  if (changes.length) await logActivity(await actorOf(req), "verwaltung", `Benachrichtigungen: ${changes.join("; ")}`);
+  res.json({ ok: true, config: after });
+});
+
+app.post("/api/notifications/test", requireLogin, requireAdmin, async (req, res) => {
+  const result = await push.sendTest(req.playerId, (req.body || {}).kind);
+  if (result.error) return res.status(400).json({ error: result.error });
+  res.json(result);
+});
+
+// Wird regelmaessig von aussen aufgerufen (Vercel-Cron taeglich, besser: externer Dienst alle 10-15 Minuten).
+// Oeffentlich erreichbar, aber harmlos: es wird nur gesendet, was gerade faellig ist, und jede Benachrichtigung
+// hoechstens einmal pro Training. Ohne Aufruf von aussen gibt es keine zeitgesteuerten Benachrichtigungen.
+async function handleTick(req, res) {
+  try {
+    res.json(await push.tick());
+  } catch (e) {
+    console.error("Tick fehlgeschlagen:", e);
+    res.status(500).json({ error: "Tick fehlgeschlagen." });
+  }
+}
+app.get("/api/cron/tick", handleTick);
+app.post("/api/cron/tick", handleTick);
 
 module.exports = app;
