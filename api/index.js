@@ -3,9 +3,23 @@ const bcrypt = require("bcryptjs");
 const db = require("../db");
 const auth = require("../auth");
 const push = require("../push");
+const i18n = require("../i18n-server");
 
 const app = express();
 app.use(express.json());
+
+// Sprache des Browsers (Header X-Lang): Fehlermeldungen werden auf Englisch uebersetzt, wenn gewuenscht.
+app.use((req, res, next) => {
+  req.lang = req.headers["x-lang"] === "en" ? "en" : "de";
+  if (req.lang === "en") {
+    const originalJson = res.json.bind(res);
+    res.json = (body) => {
+      if (body && typeof body.error === "string") body = Object.assign({}, body, { error: i18n.translateError(body.error) });
+      return originalJson(body);
+    };
+  }
+  next();
+});
 
 // Datenbank-Tabellen bei Bedarf anlegen (einmalig pro kaltem Start der Funktion,
 // bei warmen Aufrufen wird das gecachte Promise sofort aufgeloest)
@@ -35,7 +49,7 @@ async function requireAdmin(req, res, next) {
 }
 
 function publicPlayer(row) {
-  return { id: row.id, name: row.name, email: row.email, isAdmin: !!row.is_admin };
+  return { id: row.id, name: row.name, email: row.email, isAdmin: !!row.is_admin, lang: row.lang === "en" ? "en" : "de" };
 }
 
 // ---------- Protokoll ----------
@@ -141,6 +155,7 @@ app.post("/api/register", async (req, res) => {
   );
   const playerId = Number(result.lastInsertRowid);
   auth.setAuthCookie(res, playerId);
+  if (req.lang === "en") await db.run("UPDATE players SET lang = 'en' WHERE id = ?", [playerId]);
   const player = await db.get("SELECT * FROM players WHERE id = ?", [playerId]);
   await logActivity({ id: playerId, name: player.name }, "konto", isFirst ? "Neu registriert (erster Spieler, automatisch Trainer)" : "Neu registriert");
   res.json({ player: publicPlayer(player) });
@@ -876,9 +891,17 @@ app.get("/api/log", requireLogin, requireAdmin, async (req, res) => {
       actor: r.actor_name || null,
       category: r.category,
       tag: r.tag || null,
-      text: r.text,
+      text: req.lang === "en" ? i18n.translateLog(r.text) : r.text,
     })),
   });
+});
+
+// Sprache des Spielers merken (de/en) - Benachrichtigungen kommen in dieser Sprache an
+app.post("/api/lang", requireLogin, async (req, res) => {
+  const lang = (req.body || {}).lang;
+  if (lang !== "de" && lang !== "en") return res.status(400).json({ error: "Ungültige Sprache." });
+  await db.run("UPDATE players SET lang = ? WHERE id = ?", [lang, req.playerId]);
+  res.json({ ok: true, lang });
 });
 
 // ---------- Benachrichtigungen ----------
@@ -977,7 +1000,7 @@ app.post("/api/notifications/config", requireLogin, requireAdmin, async (req, re
 });
 
 app.post("/api/notifications/test", requireLogin, requireAdmin, async (req, res) => {
-  const result = await push.sendTest(req.playerId, (req.body || {}).kind);
+  const result = await push.sendTest(req.playerId, (req.body || {}).kind, req.lang);
   if (result.error) return res.status(400).json({ error: result.error });
   res.json(result);
 });

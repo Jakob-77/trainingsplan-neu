@@ -1,8 +1,9 @@
-const CACHE_NAME = "trainingsplaner-v23";
+const CACHE_NAME = "trainingsplaner-v25";
 const SHELL_FILES = [
   "/",
   "/style.css",
   "/app.js",
+  "/i18n.js",
   "/manifest.json",
   "/icons/icon-192.png",
   "/icons/icon-512.png",

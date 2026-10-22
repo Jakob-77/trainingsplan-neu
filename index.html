@@ -17,26 +17,33 @@
 <div class="field-lines"></div>
 <header>
   <div class="header-row">
-    <img src="/icons/club-logo.png" alt="Vereinslogo" class="header-logo">
-    <h1>Trainingsplaner</h1>
-    <button id="btn-info" class="info-btn" aria-label="Info zur App" title="Info zur App">i</button>
+    <img src="/icons/club-logo.png" alt="Vereinslogo" data-t-attrs="alt" class="header-logo">
+    <h1 data-t>Trainingsplaner</h1>
+    <button id="btn-lang" class="info-btn lang-btn" aria-label="Sprache / Language" title="Sprache / Language" aria-haspopup="true">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M2.5 12h19"/><path d="M12 2.5c2.8 2.7 4.2 5.9 4.2 9.5s-1.4 6.8-4.2 9.5c-2.8-2.7-4.2-5.9-4.2-9.5S9.2 5.2 12 2.5z"/></svg>
+    </button>
+    <button id="btn-info" class="info-btn" aria-label="Info zur App" title="Info zur App" data-t-attrs="aria-label,title">i</button>
+    <div id="lang-menu" class="lang-menu" hidden>
+      <button type="button" data-lang="de"><span class="lang-check">✓</span> Deutsch</button>
+      <button type="button" data-lang="en"><span class="lang-check">✓</span> English</button>
+    </div>
   </div>
 </header>
 <div id="info-overlay" class="info-overlay" style="display:none;">
   <div class="info-box">
-    <button id="btn-info-close" class="info-close" aria-label="Schließen">✕</button>
-    <h3>Trainingsplaner</h3>
+    <button id="btn-info-close" class="info-close" aria-label="Schließen" data-t-attrs="aria-label">✕</button>
+    <h3 data-t>Trainingsplaner</h3>
     <p id="info-club-description">Trainingsanmeldung (Zusage/Vielleicht/Absage), Spielplan und Teilnahme-Statistik für den Verein.</p>
 
-    <p class="info-tech-label">Technik dahinter</p>
+    <p class="info-tech-label" data-t>Technik dahinter</p>
     <ul class="info-tech-list">
-      <li>Code &amp; Versionsverwaltung: GitHub</li>
-      <li>Hosting: Vercel</li>
-      <li>Datenbank: Turso</li>
+      <li data-t>Code &amp; Versionsverwaltung: GitHub</li>
+      <li data-t>Hosting: Vercel</li>
+      <li data-t>Datenbank: Turso</li>
     </ul>
 
-    <p class="info-tech-label">Änderungen gewünscht?</p>
-    <p>Diese App wurde mit Unterstützung von Claude (KI von Anthropic) erstellt. Für Anpassungen
+    <p class="info-tech-label" data-t>Änderungen gewünscht?</p>
+    <p data-t>Diese App wurde mit Unterstützung von Claude (KI von Anthropic) erstellt. Für Anpassungen
        genügt es, Claude den Wunsch zu beschreiben — man bekommt eine aktualisierte ZIP-Datei mit
        dem Code, die einfach auf GitHub hochgeladen wird. Vercel erkennt das automatisch und
        aktualisiert die App von selbst, meist innerhalb einer Minute.</p>
@@ -47,6 +54,7 @@
 <div id="whoami-bar"></div>
 <div class="wrap" id="app"></div>
 
+<script src="/i18n.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

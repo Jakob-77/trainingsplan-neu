@@ -229,3 +229,14 @@ input[type=checkbox].toggle:focus-visible{outline:3px solid #9cc8a3;outline-offs
 .hint-box{margin-top:16px;background:var(--bg);border-radius:10px;padding:2px 14px;}
 .hint-box summary{cursor:pointer;padding:12px 0;font-weight:600;font-size:13.5px;}
 .hint-box ol{margin:0 0 10px;padding-left:20px;font-size:13px;line-height:1.5;}
+
+/* Sprachauswahl (Weltsymbol neben dem "i") */
+.header-row{position:relative;}
+.lang-btn{font-style:normal;}
+.lang-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:60;background:#fff;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.25);padding:6px;min-width:150px;}
+.lang-menu[hidden]{display:none;}
+.lang-menu button{display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:transparent;border:none;color:var(--ink);font-weight:500;padding:9px 10px;border-radius:7px;}
+.lang-menu button:hover{background:var(--grass-light);border:none;}
+.lang-menu .lang-check{visibility:hidden;color:var(--grass);font-weight:700;width:14px;}
+.lang-menu button.active{font-weight:700;}
+.lang-menu button.active .lang-check{visibility:visible;}

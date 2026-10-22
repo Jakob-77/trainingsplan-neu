@@ -98,6 +98,7 @@ manifest.json, sw.js                 PWA-Funktionalität (installierbar)
 icons/                                App-Icons mit eurem Vereinswappen
 api/index.js                          Die komplette Backend-Logik als eine Vercel-Funktion
 db.js                                 Datenbankzugriff (Turso)
+i18n.js, i18n-server.js                Übersetzung Deutsch/Englisch (Oberfläche bzw. Server-Meldungen und Protokoll)
 push.js                               Benachrichtigungen (Web-Push): Einstellungen, Texte, Versand, zeitgesteuerte Prüfung
 auth.js                               Login über signiertes Cookie
 dev-server.js                         Nur für lokale Tests, auf Vercel nicht verwendet
@@ -366,3 +367,17 @@ alle 10 bis 15 Minuten aufruft. Der Aufruf ist idempotent: jede Benachrichtigung
 
 Die Absender-Schlüssel (VAPID) werden beim ersten Gebrauch automatisch erzeugt und in der Datenbank gespeichert.
 Optional können sie als `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` (und `VAPID_SUBJECT`) in Vercel hinterlegt werden.
+
+
+## Sprache (Deutsch / Englisch)
+
+Oben im Kopf der App gibt es neben dem „i“ ein Weltsymbol: dort lässt sich zwischen **Deutsch** und **English** umschalten.
+Die Wahl wird auf dem Gerät und im Konto gespeichert (auf einem neuen Gerät übernimmt die App nach dem Anmelden die Sprache des Kontos).
+
+- **Oberfläche:** Die deutschen Texte im Code sind zugleich die Schlüssel, die englischen Fassungen stehen in `i18n.js` (Liste `EN`).
+  Fehlt zu einem Text die englische Fassung, erscheint einfach der deutsche Text. Ein neuer Text im Code wird als `tx("Deutscher Text")`
+  geschrieben (mit Platzhaltern: `tx("Hallo {name}", { name })`) und in `i18n.js` ergänzt.
+- **Server-Meldungen und Protokoll:** Fehlermeldungen und Protokoll-Einträge werden für englische Nutzer in `i18n-server.js` übersetzt.
+- **Benachrichtigungen:** Jede Sprache hat eigene Textvorlagen. Spieler bekommen sie in der Sprache ihres Kontos. In der deutschen Oberfläche
+  bearbeitet der Trainer die deutschen Texte, in der englischen Oberfläche die englischen.
+- **Nicht übersetzt** werden Eingaben von Nutzern (Namen, Orte, Notizen, Absage-Gründe, Saison- und Gegnernamen).

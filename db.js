@@ -169,6 +169,8 @@ function initSchema() {
       // Migration fuer Datenbanken aus der Vor-Vercel-Version (falls per --from-file importiert):
       // is_guest wird nicht mehr gebraucht, macht aber nichts, wenn die Spalte noch existiert.
       await ensureColumn("players", "is_admin", "INTEGER NOT NULL DEFAULT 0");
+      // Sprache des Spielers (de/en): bestimmt, in welcher Sprache Benachrichtigungen ankommen
+      await ensureColumn("players", "lang", "TEXT NOT NULL DEFAULT 'de'");
     })();
   }
   return schemaPromise;

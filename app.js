@@ -1,6 +1,10 @@
 (function () {
   "use strict";
 
+  // Uebersetzung: deutsche Texte sind die Schluessel (siehe i18n.js)
+  const tx = (key, vars) => I18N.tx(key, vars);
+  const uhr = (time) => tx("{time} Uhr", { time });
+
   // ============================================================
   // EINZIGE STELLE, DIE FÜR EINEN ANDEREN VEREIN/EINE ANDERE MANNSCHAFT
   // GEÄNDERT WERDEN MUSS: der Vereinsname. Wird überall in der App verwendet
@@ -13,19 +17,7 @@
 
   // Beispiel-Format fuer den Spielplan-Massenimport - wird sowohl als Platzhalter im Textfeld
   // als auch beim "Format kopieren"-Button verwendet, damit beides garantiert identisch bleibt.
-  const BULK_MATCH_FORMAT_EXAMPLE = `[
-  {
-    "opponent": "FC Musterheim",
-    "date": "2027-03-14",
-    "time": "16:00",
-    "isHome": true,
-    "round": "Runde 1",
-    "opponentLogoUrl": "",
-    "ort": "",
-    "referee": "",
-    "note": ""
-  }
-]`;
+  const BULK_MATCH_FORMAT_EXAMPLE = "[\n  {\n    \"opponent\": \"FC Musterheim\",\n    \"date\": \"2027-03-14\",\n    \"time\": \"16:00\",\n    \"isHome\": true,\n    \"round\": \"Runde 1\",\n    \"opponentLogoUrl\": \"\",\n    \"ort\": \"\",\n    \"referee\": \"\",\n    \"note\": \"\"\n  }\n]";
 
   const state = {
     me: null,
@@ -83,11 +75,11 @@
 
   function fmtDate(d) {
     const dt = new Date(d + "T00:00:00");
-    return dt.toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+    return dt.toLocaleDateString(I18N.locale(), { weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
   }
 
   function statusLabel(s) {
-    return { zusage: "Zusage", vielleicht: "Vielleicht", absage: "Absage" }[s] || "Offen";
+    return { zusage: tx("Zusage"), vielleicht: tx("Vielleicht"), absage: tx("Absage") }[s] || tx("Offen");
   }
   function statusClass(s) {
     return { zusage: "zusage", vielleicht: "vielleicht", absage: "absage" }[s] || "offen";
@@ -105,14 +97,14 @@
 
   function formatCountdown(target) {
     const diff = target.getTime() - Date.now();
-    if (diff <= 0) return "hat begonnen / vorbei";
+    if (diff <= 0) return tx("hat begonnen / vorbei");
     const totalMin = Math.floor(diff / 60000);
     const days = Math.floor(totalMin / (60 * 24));
     const hours = Math.floor((totalMin % (60 * 24)) / 60);
     const mins = totalMin % 60;
-    if (days > 0) return `in ${days} Tag${days === 1 ? "" : "en"} ${hours} Std.`;
-    if (hours > 0) return `in ${hours} Std. ${mins} Min.`;
-    return `in ${mins} Min.`;
+    if (days > 0) return days === 1 ? tx("in 1 Tag {hours} Std.", { hours }) : tx("in {days} Tagen {hours} Std.", { days, hours });
+    if (hours > 0) return tx("in {hours} Std. {mins} Min.", { hours, mins });
+    return tx("in {mins} Min.", { mins });
   }
 
   function toISODate(d) {
@@ -139,7 +131,7 @@
 
   function weekRangeLabel(weekStart) {
     const weekEnd = addDays(weekStart, 6);
-    const f = (d) => d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+    const f = (d) => d.toLocaleDateString(I18N.locale(), { day: "2-digit", month: "2-digit" });
     return `${f(weekStart)} – ${f(weekEnd)}.${weekEnd.getFullYear()}`;
   }
 
@@ -246,11 +238,11 @@
   async function api(path, opts) {
     const res = await fetch("/api" + path, {
       method: (opts && opts.method) || "GET",
-      headers: Object.assign({ "Content-Type": "application/json" }, (opts && opts.headers) || {}),
+      headers: Object.assign({ "Content-Type": "application/json", "X-Lang": I18N.lang }, (opts && opts.headers) || {}),
       body: opts && opts.body ? JSON.stringify(opts.body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || "Fehler bei der Anfrage.");
+    if (!res.ok) throw new Error(data.error || tx("Fehler bei der Anfrage."));
     return data;
   }
 
@@ -272,10 +264,10 @@
     if (!state.deferredInstallPrompt || state.installDismissed) return "";
     return `
       <div class="install-hint">
-        <span>📲 Diese Seite kann als App auf dem Startbildschirm installiert werden.</span>
+        <span>${tx("📲 Diese Seite kann als App auf dem Startbildschirm installiert werden.")}</span>
         <span>
-          <button class="small" id="btn-install">Installieren</button>
-          <button class="small secondary" id="btn-install-dismiss">Nicht jetzt</button>
+          <button class="small" id="btn-install">${tx("Installieren")}</button>
+          <button class="small secondary" id="btn-install-dismiss">${tx("Nicht jetzt")}</button>
         </span>
       </div>`;
   }
@@ -305,9 +297,21 @@
     }
   }
 
+  // Sprache: Hat dieses Geraet noch keine Wahl gespeichert, gilt die Sprache des Kontos; sonst wird die Wahl am Server gemerkt
+  // (der Server braucht sie, damit Benachrichtigungen in der richtigen Sprache ankommen).
+  function adoptOrSyncLang() {
+    if (!state.me) return false;
+    const serverLang = state.me.lang || "de";
+    if (serverLang === I18N.lang) return false;
+    if (!I18N.hasStored()) { I18N.setLang(serverLang); location.reload(); return true; }
+    api("/lang", { method: "POST", body: { lang: I18N.lang } }).catch(() => {});
+    return false;
+  }
+
   async function loadMe() {
     const data = await api("/me");
     state.me = data.player;
+    adoptOrSyncLang();
   }
 
   async function loadTrainings() {
@@ -358,7 +362,7 @@
     const now = new Date();
     const month = now.getMonth() + 1;
     const year = now.getFullYear();
-    return month <= 6 ? `Frühjahrssaison ${year}` : `Herbstsaison ${year}`;
+    return month <= 6 ? tx("Frühjahrssaison {year}", { year }) : tx("Herbstsaison {year}", { year });
   }
 
   function suggestSeasonRange() {
@@ -396,8 +400,8 @@
     if (!state.me) { bar.innerHTML = ""; return; }
     bar.innerHTML = `
       <div class="whoami">
-        <span>Angemeldet als <b>${escapeHtml(state.me.name)}</b>${state.me.isAdmin ? '<span class="badge-admin">Trainer</span>' : ""}</span>
-        <button id="btn-logout">Abmelden</button>
+        <span>${tx("Angemeldet als")} <b>${escapeHtml(state.me.name)}</b>${state.me.isAdmin ? tx('<span class="badge-admin">Trainer</span>') : ""}</span>
+        <button id="btn-logout">${tx("Abmelden")}</button>
       </div>`;
     document.getElementById("btn-logout").onclick = async () => {
       await pushDetachOnLogout();
@@ -415,7 +419,7 @@
     const app = document.getElementById("app");
 
     if (state.loading) {
-      app.innerHTML = `<div class="card"><p class="muted"><span class="spinner"></span> Lade Daten …</p></div>`;
+      app.innerHTML = `<div class="card"><p class="muted"><span class="spinner"></span> ${tx("Lade Daten …")}</p></div>`;
       return;
     }
 
@@ -435,29 +439,29 @@
   function renderAuth() {
     return `
       <div class="card">
-        <h2>Anmelden</h2>
-        <label>E-Mail</label>
+        <h2>${tx("Anmelden")}</h2>
+        <label>${tx("E-Mail")}</label>
         <input type="email" id="login-email" autocomplete="username">
-        <label>Passwort</label>
+        <label>${tx("Passwort")}</label>
         <input type="password" id="login-password" autocomplete="current-password">
         <div id="login-error" class="error"></div>
-        <div style="margin-top:12px;"><button id="btn-login">Anmelden</button></div>
+        <div style="margin-top:12px;"><button id="btn-login">${tx("Anmelden")}</button></div>
       </div>
       <div class="card">
-        <h2>Neu registrieren</h2>
-        <label>Name</label>
-        <input type="text" id="reg-name" placeholder="Vor- und Nachname">
-        <label>E-Mail</label>
+        <h2>${tx("Neu registrieren")}</h2>
+        <label>${tx("Name")}</label>
+        <input type="text" id="reg-name" placeholder="${tx("Vor- und Nachname")}">
+        <label>${tx("E-Mail")}</label>
         <input type="email" id="reg-email" autocomplete="username">
-        <label>Passwort (mind. 6 Zeichen)</label>
+        <label>${tx("Passwort (mind. 6 Zeichen)")}</label>
         <input type="password" id="reg-password" autocomplete="new-password">
         ${state.clubWordRequired !== false ? `
-        <label>Vereinswort</label>
-        <input type="text" id="reg-clubword" autocomplete="off" autocapitalize="off" placeholder="Habt ihr vom Trainer bekommen">` : ""}
+        <label>${tx("Vereinswort")}</label>
+        <input type="text" id="reg-clubword" autocomplete="off" autocapitalize="off" placeholder="${tx("Habt ihr vom Trainer bekommen")}">` : ""}
         <div id="reg-error" class="error"></div>
-        <div style="margin-top:12px;"><button id="btn-register">Registrieren</button></div>
+        <div style="margin-top:12px;"><button id="btn-register">${tx("Registrieren")}</button></div>
       </div>
-      <p class="muted" style="text-align:center;">Passwort vergessen? Ein Trainer kann euren Account löschen, damit ihr euch neu registrieren könnt.</p>`;
+      <p class="muted" style="text-align:center;">${tx("Passwort vergessen? Ein Trainer kann euren Account löschen, damit ihr euch neu registrieren könnt.")}</p>`;
   }
 
   function bindAuth() {
@@ -469,6 +473,7 @@
       try {
         const data = await api("/login", { method: "POST", body: { email, password } });
         state.me = data.player;
+        if (adoptOrSyncLang()) return;
         await bootAfterLogin();
       } catch (e) {
         err.textContent = e.message;
@@ -486,6 +491,7 @@
       try {
         const data = await api("/register", { method: "POST", body: { name, email, password, clubWord } });
         state.me = data.player;
+        if (adoptOrSyncLang()) return;
         await bootAfterLogin();
       } catch (e) {
         err.textContent = e.message;
@@ -510,9 +516,9 @@
   function renderMain() {
     const nav = `
       <div class="tabs">
-        <button class="${state.view === "home" ? "" : "secondary"}" id="nav-home">Trainings</button>
-        <button class="${state.view === "stats" ? "" : "secondary"}" id="nav-stats">Statistik</button>
-        ${state.me.isAdmin ? `<button class="${state.view === "admin" ? "" : "secondary"}" id="nav-admin">Verwaltung</button>` : ""}
+        <button class="${state.view === "home" ? "" : "secondary"}" id="nav-home">${tx("Trainings")}</button>
+        <button class="${state.view === "stats" ? "" : "secondary"}" id="nav-stats">${tx("Statistik")}</button>
+        ${state.me.isAdmin ? `<button class="${state.view === "admin" ? "" : "secondary"}" id="nav-admin">${tx("Verwaltung")}</button>` : ""}
       </div>`;
     let content = "";
     if (state.view === "stats") content = renderStats();
@@ -554,7 +560,7 @@
         <button class="small secondary" id="week-prev">◀</button>
         <span class="week-label">${weekRangeLabel(state.weekStart)}</span>
         <button class="small secondary" id="week-next">▶</button>
-        <button class="small secondary" id="week-today">Aktuelle Woche</button>
+        <button class="small secondary" id="week-today">${tx("Aktuelle Woche")}</button>
       </div>`;
   }
 
@@ -585,10 +591,10 @@
     return `
       <div class="next-training-banner">
         <div>
-          <div style="font-weight:700;">⭐ Nächstes Training: ${fmtDate(next.date)} · ${next.time} Uhr</div>
+          <div style="font-weight:700;">${tx("⭐ Nächstes Training:")} ${fmtDate(next.date)} · ${uhr(next.time)}</div>
           <div class="muted">${escapeHtml(next.ort || "")} — <span data-countdown-target="${dt.toISOString()}">${formatCountdown(dt)}</span></div>
         </div>
-        <button class="small secondary" id="btn-jump-next">Zur Woche springen</button>
+        <button class="small secondary" id="btn-jump-next">${tx("Zur Woche springen")}</button>
       </div>`;
   }
 
@@ -597,7 +603,7 @@
     const m = getNextMatch();
     if (!m) return ""; // kein Spiel eingetragen - Banner bleibt einfach weg
     const dt = new Date(`${m.date}T${m.time}:00`);
-    const heimAuswaerts = m.isHome ? "Heimspiel" : "Auswärtsspiel";
+    const heimAuswaerts = m.isHome ? tx("Heimspiel") : tx("Auswärtsspiel");
     const ownLogo = "/icons/club-logo.png";
     const oppLogo = m.opponentLogoUrl || "";
     const homeLogo = m.isHome ? ownLogo : oppLogo;
@@ -618,8 +624,8 @@
           </div>
         </div>
         <div>
-          <div class="muted">${m.round ? `${escapeHtml(m.round)} · ` : ""}${heimAuswaerts} · ${fmtDate(m.date)} · ${m.time} Uhr${m.ort ? ` · ${escapeHtml(m.ort)}` : ""}</div>
-          ${m.referee ? `<div class="muted">Schiedsrichter: ${escapeHtml(m.referee)}</div>` : ""}
+          <div class="muted">${m.round ? `${escapeHtml(m.round)} · ` : ""}${heimAuswaerts} · ${fmtDate(m.date)} · ${uhr(m.time)}${m.ort ? ` · ${escapeHtml(m.ort)}` : ""}</div>
+          ${m.referee ? `<div class="muted">${tx("Schiedsrichter:")} ${escapeHtml(m.referee)}</div>` : ""}
           ${m.note ? `<div class="muted">${escapeHtml(m.note)}</div>` : ""}
           <span data-countdown-target="${dt.toISOString()}" class="muted">${formatCountdown(dt)}</span>
         </div>
@@ -631,9 +637,9 @@
     const visible = trainingsInCurrentWeek();
 
     const list = state.trainings.length === 0
-      ? `<div class="card"><p class="empty">Es sind noch keine Trainings eingetragen.</p></div>`
+      ? `<div class="card"><p class="empty">${tx("Es sind noch keine Trainings eingetragen.")}</p></div>`
       : visible.length === 0
-        ? `<div class="card"><p class="empty">Keine Trainings in dieser Woche.</p></div>`
+        ? `<div class="card"><p class="empty">${tx("Keine Trainings in dieser Woche.")}</p></div>`
         : visible.map((t) => renderTrainingCard(t, next)).join("");
 
     return renderNextTrainingBanner() + renderNextMatchBanner() + renderWeekNav() + list + renderPushCard();
@@ -657,8 +663,8 @@
       <div class="card training ${isNext ? "next-training" : ""}" data-id="${t.id}">
         <div class="head">
           <div>
-            ${isNext ? `<div class="pill zusage" style="margin-bottom:6px;">⭐ Nächstes Training</div>` : ""}
-            <div class="when">${fmtDate(t.date)} · ${t.time} Uhr</div>
+            ${isNext ? `<div class="pill zusage" style="margin-bottom:6px;">${tx("⭐ Nächstes Training")}</div>` : ""}
+            <div class="when">${fmtDate(t.date)} · ${uhr(t.time)}</div>
             <div class="where">${escapeHtml(t.ort || "")}</div>
             ${t.note ? `<div class="muted" style="margin-top:4px;">${escapeHtml(t.note)}</div>` : ""}
             ${!closed ? `<div class="muted" style="margin-top:4px;">⏱ <span data-countdown-target="${dt.toISOString()}">${formatCountdown(dt)}</span></div>` : ""}
@@ -670,33 +676,33 @@
           <span class="tally-item tally-maybe">❓ <span class="tally-count">${t.vielleichtCount || 0}</span></span>
           <span class="tally-item tally-no">👎 <span class="tally-count">${t.absageCount || 0}</span></span>
         </div>
-        ${guestCount > 0 ? `<div class="muted" style="margin-top:8px;">➕ ${guestCount} Gast${guestCount === 1 ? "" : "gäste"}: ${escapeHtml((t.guests || []).map((g) => g.name).join(", "))}</div>` : ""}
+        ${guestCount > 0 ? `<div class="muted" style="margin-top:8px;">➕ ${guestCount === 1 ? tx("1 Gast") : tx("{n} Gäste", { n: guestCount })}: ${escapeHtml((t.guests || []).map((g) => g.name).join(", "))}</div>` : ""}
 
         ${closed ? `
-          <p class="muted" style="margin-top:12px;font-style:italic;">🔒 Abstimmung geschlossen (weniger als 1 Stunde bis Trainingsbeginn oder bereits vorbei).</p>
+          <p class="muted" style="margin-top:12px;font-style:italic;">${tx("🔒 Abstimmung geschlossen (weniger als 1 Stunde bis Trainingsbeginn oder bereits vorbei).")}</p>
         ` : `
           <div class="rsvp-buttons">
-            <button data-status="zusage" class="${shownStatus === "zusage" ? "active-zusage" : "inactive"}">Zusage</button>
-            <button data-status="vielleicht" class="${shownStatus === "vielleicht" ? "active-vielleicht" : "inactive"}">Vielleicht</button>
-            <button data-status="absage" class="${shownStatus === "absage" ? "active-absage" : "inactive"}">Absage</button>
+            <button data-status="zusage" class="${shownStatus === "zusage" ? "active-zusage" : "inactive"}">${tx("Zusage")}</button>
+            <button data-status="vielleicht" class="${shownStatus === "vielleicht" ? "active-vielleicht" : "inactive"}">${tx("Vielleicht")}</button>
+            <button data-status="absage" class="${shownStatus === "absage" ? "active-absage" : "inactive"}">${tx("Absage")}</button>
           </div>
           ${status === "zusage" && !boxOpen ? `
           <div style="margin-top:8px;">
-            <button class="small secondary btn-toggle-note">${t.myReason ? "Notiz bearbeiten" : "+ Notiz hinzufügen (optional)"}</button>
+            <button class="small secondary btn-toggle-note">${t.myReason ? tx("Notiz bearbeiten") : tx("+ Notiz hinzufügen (optional)")}</button>
           </div>` : ""}
           <div class="reason-box" style="display:${boxOpen ? "block" : "none"};margin-top:10px;">
-            <label>${effectiveStatus === "zusage" ? "Notiz (optional)" : "Grund (Pflichtfeld)"}</label>
-            <textarea class="reason-input" placeholder="z. B. beruflich verhindert, verletzt, im Urlaub … (oder bei Zusage z. B. „komme 10 Minuten später“)">${effectiveStatus === "zusage" ? escapeHtml(t.myReason || "") : ""}</textarea>
-            <div class="error reason-error" style="display:none;">Bitte einen Grund angeben.</div>
+            <label>${effectiveStatus === "zusage" ? tx("Notiz (optional)") : tx("Grund (Pflichtfeld)")}</label>
+            <textarea class="reason-input" placeholder="${tx("z. B. beruflich verhindert, verletzt, im Urlaub … (oder bei Zusage z. B. „komme 10 Minuten später“)")}">${effectiveStatus === "zusage" ? escapeHtml(t.myReason || "") : ""}</textarea>
+            <div class="error reason-error" style="display:none;">${tx("Bitte einen Grund angeben.")}</div>
             <div style="margin-top:8px;">
-              <button class="small save-reason">Speichern</button>
-              <button class="small secondary btn-cancel-note">Abbrechen</button>
+              <button class="small save-reason">${tx("Speichern")}</button>
+              <button class="small secondary btn-cancel-note">${tx("Abbrechen")}</button>
             </div>
           </div>
         `}
 
         <div style="margin-top:12px;">
-          <button class="small secondary btn-overview">${overview ? "Übersicht ausblenden" : "Übersicht anzeigen"}</button>
+          <button class="small secondary btn-overview">${overview ? tx("Übersicht ausblenden") : tx("Übersicht anzeigen")}</button>
         </div>
         ${overview ? renderOverview(overview) : ""}
       </div>`;
@@ -719,17 +725,17 @@
     };
     const guestSection = data.guests && data.guests.length > 0 ? `
         <div style="margin-top:10px;">
-          <div><span class="pill zusage">Gäste</span> <b>${data.guests.length}</b></div>
+          <div><span class="pill zusage">${tx("Gäste")}</span> <b>${data.guests.length}</b></div>
           <ul style="${listStyle(data.guests.length)}">
             ${data.guests.map((g) => `<li>${escapeHtml(g.name)}</li>`).join("")}
           </ul>
         </div>` : "";
     return `
       <div class="card" style="background:var(--bg);margin-top:10px;box-shadow:none;">
-        ${section("zusage", "Zusage", "zusage", true)}
-        ${section("vielleicht", "Vielleicht", "vielleicht", true)}
-        ${section("absage", "Absage", "absage", true)}
-        ${section("offen", "Offen", "offen", false)}
+        ${section("zusage", tx("Zusage"), "zusage", true)}
+        ${section("vielleicht", tx("Vielleicht"), "vielleicht", true)}
+        ${section("absage", tx("Absage"), "absage", true)}
+        ${section("offen", tx("Offen"), "offen", false)}
         ${guestSection}
       </div>`;
   }
@@ -916,23 +922,23 @@
 
   function renderStats() {
     const seasonOptions = `
-      <option value="current" ${state.statsSeasonId === "current" ? "selected" : ""}>Aktuelle Saison</option>
+      <option value="current" ${state.statsSeasonId === "current" ? "selected" : ""}>${tx("Aktuelle Saison")}</option>
       ${state.seasons.map((s) => `<option value="${s.id}" ${String(state.statsSeasonId) === String(s.id) ? "selected" : ""}>${escapeHtml(s.name)}</option>`).join("")}
-      <option value="all" ${state.statsSeasonId === "all" ? "selected" : ""}>Alle Saisonen (gesamt)</option>
+      <option value="all" ${state.statsSeasonId === "all" ? "selected" : ""}>${tx("Alle Saisonen (gesamt)")}</option>
     `;
     const seasonPicker = `
       <div class="card" style="margin-bottom:12px;">
-        <label>Saison</label>
+        <label>${tx("Saison")}</label>
         <select id="stats-season-select">${seasonOptions}</select>
       </div>`;
 
-    if (!state.stats) return seasonPicker + `<div class="card"><p class="muted"><span class="spinner"></span> Lade …</p></div>`;
+    if (!state.stats) return seasonPicker + `<div class="card"><p class="muted"><span class="spinner"></span> ${tx("Lade …")}</p></div>`;
     if (state.stats.rows.length === 0) {
-      return seasonPicker + `<div class="card"><p class="empty">Noch keine Spieler registriert.</p></div>`;
+      return seasonPicker + `<div class="card"><p class="empty">${tx("Noch keine Spieler registriert.")}</p></div>`;
     }
     const seasonLabel = state.statsSeasonId === "current"
-      ? (state.stats.seasonName ? `Saison "${escapeHtml(state.stats.seasonName)}"` : "keine aktive Saison hinterlegt, zeigt alle Trainings")
-      : state.statsSeasonId === "all" ? "alle Saisonen" : `Saison "${escapeHtml(state.stats.seasonName || "")}"`;
+      ? (state.stats.seasonName ? tx('Saison "{name}"', { name: escapeHtml(state.stats.seasonName) }) : tx("keine aktive Saison hinterlegt, zeigt alle Trainings"))
+      : state.statsSeasonId === "all" ? tx("alle Saisonen") : tx('Saison "{name}"', { name: escapeHtml(state.stats.seasonName || "") });
 
     const MATRIX_LIMIT = 15;
     const allPastTrainings = state.stats.pastTrainings; // vom Server bereits neuestes zuerst sortiert
@@ -941,20 +947,20 @@
 
     const dateHeaders = visibleTrainings.map((t) => {
       const d = new Date(`${t.date}T00:00:00`);
-      return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" });
+      return d.toLocaleDateString(I18N.locale(), { day: "2-digit", month: "2-digit" });
     });
 
     return seasonPicker + `
       <div class="card">
-        <h2>Trainingsbeteiligung — ${seasonLabel}</h2>
-        <div class="stats-summary-bar"><b>${state.stats.pastTrainingCount}</b> Trainings bereits stattgefunden${state.stats.trainingCount > state.stats.pastTrainingCount ? ` <span class="muted">(von ${state.stats.trainingCount} insgesamt geplant)</span>` : ""}</div>
-        ${hasMore ? `<p class="muted" style="font-size:12px;margin:-4px 0 8px;">Matrix zeigt die letzten ${MATRIX_LIMIT} von ${allPastTrainings.length} Trainings${state.statsMatrixExpanded ? " (alle angezeigt)" : ""}.</p>` : ""}
+        <h2>${tx("Trainingsbeteiligung")} — ${seasonLabel}</h2>
+        <div class="stats-summary-bar"><b>${state.stats.pastTrainingCount}</b> ${tx("Trainings bereits stattgefunden")}${state.stats.trainingCount > state.stats.pastTrainingCount ? ` <span class="muted">${tx("(von {total} insgesamt geplant)", { total: state.stats.trainingCount })}</span>` : ""}</div>
+        ${hasMore ? `<p class="muted" style="font-size:12px;margin:-4px 0 8px;">${state.statsMatrixExpanded ? tx("Matrix zeigt die letzten {limit} von {total} Trainings (alle angezeigt).", { limit: MATRIX_LIMIT, total: allPastTrainings.length }) : tx("Matrix zeigt die letzten {limit} von {total} Trainings.", { limit: MATRIX_LIMIT, total: allPastTrainings.length })}</p>` : ""}
         <div class="table-scroll">
           <table class="matrix-table">
             <thead>
               <tr>
-                <th>Spieler</th>
-                <th>Teilnahme</th>
+                <th>${tx("Spieler")}</th>
+                <th>${tx("Teilnahme")}</th>
                 ${dateHeaders.map((d) => `<th style="text-align:center;">${d}</th>`).join("")}
               </tr>
             </thead>
@@ -967,8 +973,8 @@
             </tbody>
           </table>
         </div>
-        ${hasMore ? `<div style="margin-top:10px;"><button class="small secondary" id="btn-toggle-matrix">${state.statsMatrixExpanded ? `Nur die letzten ${MATRIX_LIMIT} Trainings zeigen` : `Alle ${allPastTrainings.length} Trainings anzeigen`}</button></div>` : ""}
-        <p class="muted" style="margin-top:8px;font-size:11.5px;">👍 Zusage · ❓ Vielleicht · 👎 Absage · ○ keine Antwort gegeben. Jede Spalte rechts ist ein einzelnes, bereits stattgefundenes Training (neuestes zuerst) — nach rechts wischen/scrollen für weitere. "Teilnahme" zeigt Zusagen und Quote bezogen auf alle bisherigen Trainings dieser Saison (nicht nur die sichtbaren Spalten).</p>
+        ${hasMore ? `<div style="margin-top:10px;"><button class="small secondary" id="btn-toggle-matrix">${state.statsMatrixExpanded ? tx("Nur die letzten {n} Trainings zeigen", { n: MATRIX_LIMIT }) : tx("Alle {n} Trainings anzeigen", { n: allPastTrainings.length })}</button></div>` : ""}
+        <p class="muted" style="margin-top:8px;font-size:11.5px;">${tx("👍 Zusage · ❓ Vielleicht · 👎 Absage · ○ keine Antwort gegeben. Jede Spalte rechts ist ein einzelnes, bereits stattgefundenes Training (neuestes zuerst) — nach rechts wischen/scrollen für weitere. \"Teilnahme\" zeigt Zusagen und Quote bezogen auf alle bisherigen Trainings dieser Saison (nicht nur die sichtbaren Spalten).")}</p>
       </div>`;
   }
 
@@ -1044,7 +1050,7 @@
       const perm = await Notification.requestPermission();
       p.permission = perm;
       if (perm !== "granted") {
-        p.error = perm === "denied" ? "" : "Die Erlaubnis wurde nicht erteilt.";
+        p.error = perm === "denied" ? "" : tx("Die Erlaubnis wurde nicht erteilt.");
         return;
       }
       const reg = await navigator.serviceWorker.ready;
@@ -1066,7 +1072,7 @@
       await api("/push/subscribe", { method: "POST", body: { subscription: sub.toJSON() } });
       p.subscribed = true;
     } catch (e) {
-      p.error = "Das hat nicht geklappt: " + (e && e.message ? e.message : "unbekannter Fehler");
+      p.error = tx("Das hat nicht geklappt: ") + (e && e.message ? e.message : tx("unbekannter Fehler"));
     } finally {
       p.busy = false;
       render();
@@ -1087,7 +1093,7 @@
       }
       p.subscribed = false;
     } catch (e) {
-      p.error = "Das hat nicht geklappt: " + (e && e.message ? e.message : "unbekannter Fehler");
+      p.error = tx("Das hat nicht geklappt: ") + (e && e.message ? e.message : tx("unbekannter Fehler"));
     } finally {
       p.busy = false;
       render();
@@ -1108,32 +1114,32 @@
     const p = state.push;
     if (!p.available) return "";
     const wants = [];
-    if (p.types.reminder) wants.push("eine Erinnerung, wenn du noch nicht abgestimmt hast");
-    if (p.types.change) wants.push("eine Nachricht, wenn ein Training geändert oder abgesagt wird");
-    if (p.types.summary) wants.push("die Übersicht der Zusagen (Trainer)");
+    if (p.types.reminder) wants.push(tx("eine Erinnerung, wenn du noch nicht abgestimmt hast"));
+    if (p.types.change) wants.push(tx("eine Nachricht, wenn ein Training geändert oder abgesagt wird"));
+    if (p.types.summary) wants.push(tx("die Übersicht der Zusagen (Trainer)"));
     let body;
     if (!p.supported) {
       body = p.isIOS && !p.standalone
-        ? `<p class="muted">Auf dem iPhone funktionieren Benachrichtigungen, wenn die App auf dem Home-Bildschirm liegt: In Safari auf „Teilen“ tippen, „Zum Home-Bildschirm“ wählen und die App von dort öffnen.</p>`
-        : `<p class="muted">Dieses Gerät oder dieser Browser unterstützt keine Benachrichtigungen.</p>`;
+        ? `<p class="muted">${tx("Auf dem iPhone funktionieren Benachrichtigungen, wenn die App auf dem Home-Bildschirm liegt: In Safari auf „Teilen“ tippen, „Zum Home-Bildschirm“ wählen und die App von dort öffnen.")}</p>`
+        : `<p class="muted">${tx("Dieses Gerät oder dieser Browser unterstützt keine Benachrichtigungen.")}</p>`;
     } else if (p.permission === "denied") {
-      body = `<p class="muted">Benachrichtigungen sind für diese App blockiert. Erlaube sie in den Einstellungen deines Handys oder Browsers und lade die Seite neu.</p>`;
+      body = `<p class="muted">${tx("Benachrichtigungen sind für diese App blockiert. Erlaube sie in den Einstellungen deines Handys oder Browsers und lade die Seite neu.")}</p>`;
     } else if (!p.subscribed) {
       body = `
-        <p class="muted">Du bekommst ${wants.join(", ")}.</p>
-        <button id="btn-push-enable" ${p.busy ? "disabled" : ""}>${p.busy ? "Einen Moment …" : "Benachrichtigungen aktivieren"}</button>`;
+        <p class="muted">${tx("Du bekommst {list}.", { list: wants.join(", ") })}</p>
+        <button id="btn-push-enable" ${p.busy ? "disabled" : ""}>${p.busy ? tx("Einen Moment …") : tx("Benachrichtigungen aktivieren")}</button>`;
     } else {
       const sw = (key, label) => `<label class="switch-row"><input type="checkbox" data-push-pref="${key}" ${p.prefs[key] ? "checked" : ""}> ${label}</label>`;
       body = `
-        <p class="muted" style="margin-bottom:4px;">Auf diesem Gerät eingeschaltet. Du bekommst:</p>
-        ${p.types.reminder ? sw("reminder", "Erinnerung, wenn ich noch nicht abgestimmt habe") : ""}
-        ${p.types.change ? sw("change", "Änderungen und Absagen von Trainings") : ""}
-        ${p.types.summary ? sw("summary", "Übersicht der Zusagen (Trainer)") : ""}
-        <div style="margin-top:10px;"><button class="small secondary" id="btn-push-disable" ${p.busy ? "disabled" : ""}>Auf diesem Gerät ausschalten</button></div>`;
+        <p class="muted" style="margin-bottom:4px;">${tx("Auf diesem Gerät eingeschaltet. Du bekommst:")}</p>
+        ${p.types.reminder ? sw("reminder", tx("Erinnerung, wenn ich noch nicht abgestimmt habe")) : ""}
+        ${p.types.change ? sw("change", tx("Änderungen und Absagen von Trainings")) : ""}
+        ${p.types.summary ? sw("summary", tx("Übersicht der Zusagen (Trainer)")) : ""}
+        <div style="margin-top:10px;"><button class="small secondary" id="btn-push-disable" ${p.busy ? "disabled" : ""}>${tx("Auf diesem Gerät ausschalten")}</button></div>`;
     }
     return `
       <div class="card">
-        <h2>Benachrichtigungen</h2>
+        <h2>${tx("Benachrichtigungen")}</h2>
         ${body}
         ${p.error ? `<div class="error">${escapeHtml(p.error)}</div>` : ""}
       </div>`;
@@ -1176,56 +1182,60 @@
   }
 
   const NOTIF_SAMPLE = {
-    tag: "morgen", Tag: "Morgen", datum: "Do. 08.10.2026", zeit: "19:00", ort: "Sportplatz",
-    aenderung: "Neuer Termin: Do. 08.10.2026 18:30 Uhr (vorher: Do. 08.10.2026 19:00 Uhr)",
+    tag: tx("morgen"), Tag: tx("Morgen"), datum: tx("Do. 08.10.2026"), zeit: "19:00", ort: tx("Sportplatz"),
+    aenderung: tx("Neue Uhrzeit: 18:30 Uhr (vorher: 19:00 Uhr)"),
     zusagen: 11, vielleicht: 3, absagen: 2, offen: 6, gaeste: 1,
+    zusagenText: tx("11 Zusagen"), vielleichtText: tx("3 Vielleicht"), absagenText: tx("2 Absagen"), offenText: tx("6 noch offen"), gaesteText: tx("1 Gast"),
   };
   const renderNotifTpl = (str, vars) =>
     String(str || "").replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m));
 
   // Die drei Arten mit allem, was die Oberflaeche braucht. "bubbles" = die Texte, die man aendern kann.
   const NOTIF_KINDS = [
-    { kind: "reminder", title: "Erinnerung", desc: "Geht an Spieler, die noch nicht abgestimmt haben.", hours: true,
+    { kind: "reminder", title: tx("Erinnerung"), desc: tx("Geht an Spieler, die noch nicht abgestimmt haben."), hours: true,
       bubbles: [{ key: "reminder", label: "", fields: ["title", "body"], ids: ["nc-reminder-title", "nc-reminder-body"] }] },
-    { kind: "change", title: "Änderung oder Absage", desc: "Geht sofort an alle, wenn du ein Training änderst oder löschst.", hours: false,
+    { kind: "change", title: tx("Änderung oder Absage"), desc: tx("Geht sofort an alle, wenn du ein Training änderst oder löschst."), hours: false,
       bubbles: [
-        { key: "change", label: "Bei Änderung", fields: ["title", "body"], ids: ["nc-change-title", "nc-change-body"] },
-        { key: "change-cancel", label: "Bei Absage", fields: ["cancelTitle", "cancelBody"], ids: ["nc-change-ctitle", "nc-change-cbody"] },
+        { key: "change", label: tx("Bei Änderung"), fields: ["title", "body"], ids: ["nc-change-title", "nc-change-body"] },
+        { key: "change-cancel", label: tx("Bei Absage"), fields: ["cancelTitle", "cancelBody"], ids: ["nc-change-ctitle", "nc-change-cbody"] },
       ] },
-    { kind: "summary", title: "Zusagen-Übersicht", desc: "Geht nur an Trainer: wie viele zugesagt haben.", hours: true,
+    { kind: "summary", title: tx("Zusagen-Übersicht"), desc: tx("Geht nur an Trainer: wie viele zugesagt haben."), hours: true,
       bubbles: [{ key: "summary", label: "", fields: ["title", "body"], ids: ["nc-summary-title", "nc-summary-body"] }] },
   ];
+  // In der englischen Oberflaeche bearbeitet der Trainer die englischen Textvorlagen (Felder mit Endung "En")
+  if (I18N.lang === "en") NOTIF_KINDS.forEach((k) => k.bubbles.forEach((b) => { b.fields = b.fields.map((f) => f + "En"); }));
   const NOTIF_CHIP_LABELS = {
-    tag: "Tag (morgen)", Tag: "Tag (Morgen)", datum: "Datum", zeit: "Uhrzeit", ort: "Ort", aenderung: "Was sich geändert hat",
-    zusagen: "Anzahl Zusagen", vielleicht: "Anzahl Vielleicht", absagen: "Anzahl Absagen", offen: "Anzahl offen", gaeste: "Anzahl Gäste",
+    tag: tx("Tag (morgen)"), Tag: tx("Tag (Morgen)"), datum: tx("Datum"), zeit: tx("Uhrzeit"), ort: tx("Ort"), aenderung: tx("Was sich geändert hat"),
+    zusagen: tx("Anzahl Zusagen"), vielleicht: tx("Anzahl Vielleicht"), absagen: tx("Anzahl Absagen"), offen: tx("Anzahl offen"), gaeste: tx("Anzahl Gäste"),
+    zusagenText: tx("Zusagen"), vielleichtText: tx("Vielleicht"), absagenText: tx("Absagen"), offenText: tx("Noch offen"), gaesteText: tx("Gäste"),
   };
 
   function relTime(iso) {
     if (!iso) return null;
     const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-    if (min < 1) return "gerade eben";
-    if (min < 60) return `vor ${min} Min.`;
-    if (min < 60 * 24) return `vor ${Math.round(min / 60)} Std.`;
+    if (min < 1) return tx("gerade eben");
+    if (min < 60) return tx("vor {min} Min.", { min });
+    if (min < 60 * 24) return tx("vor {hours} Std.", { hours: Math.round(min / 60) });
     const days = Math.round(min / 1440);
-    return `vor ${days} Tag${days === 1 ? "" : "en"}`;
+    return days === 1 ? tx("vor 1 Tag") : tx("vor {days} Tagen", { days });
   }
 
   function notifSummaryText() {
     const c = state.notifCfg;
     if (!c) return "";
     const on = ["reminder", "change", "summary"].filter((k) => c[k].enabled).length;
-    return on === 0 ? "alle aus" : `${on} von 3 an`;
+    return on === 0 ? tx("alle aus") : tx("{on} von 3 an", { on });
   }
 
   // Inhalt des aufklappbaren Bereichs "Benachrichtigungen"
   function renderNotifAdminCard() {
     const c = state.notifCfg;
-    if (!c) return `<p class="muted"><span class="spinner"></span> Lade …</p>`;
+    if (!c) return `<p class="muted"><span class="spinner"></span> ${tx("Lade …")}</p>`;
     const st = state.notifStatus || { devices: 0, players: 0, lastTick: null };
     const tickUrl = `${location.origin}/api/cron/tick`;
     const ageMin = st.lastTick ? (Date.now() - new Date(st.lastTick).getTime()) / 60000 : null;
     const tickClass = ageMin === null ? "warn" : ageMin <= 30 ? "ok" : "warn";
-    const tickText = ageMin === null ? "Automatische Prüfung: noch nie gelaufen" : ageMin <= 30 ? `Automatische Prüfung: aktiv (${relTime(st.lastTick)})` : `Automatische Prüfung: zuletzt ${relTime(st.lastTick)}`;
+    const tickText = ageMin === null ? tx("Automatische Prüfung: noch nie gelaufen") : ageMin <= 30 ? tx("Automatische Prüfung: aktiv ({when})", { when: relTime(st.lastTick) }) : tx("Automatische Prüfung: zuletzt {when}", { when: relTime(st.lastTick) });
 
     const itemHtml = (k) => {
       const cfg = c[k.kind];
@@ -1239,23 +1249,23 @@
           <div class="notif-bubble" data-bubble="${bub.key}">
             <img class="bubble-icon" src="/icons/icon-192.png" alt="">
             <div style="min-width:0;">
-              <div class="bubble-app">Trainingsplaner · jetzt</div>
+              <div class="bubble-app">${tx("Trainingsplaner · jetzt")}</div>
               <div class="bubble-title"></div>
               <div class="bubble-body"></div>
             </div>
           </div>
-          <div class="notif-actions"><button type="button" class="small secondary" data-edit-text="${bub.key}">Text ändern</button></div>
+          <div class="notif-actions"><button type="button" class="small secondary" data-edit-text="${bub.key}">${tx("Text ändern")}</button></div>
           <div class="notif-editor" id="ed-${bub.key}" ${state.notifEditing === bub.key ? "" : "hidden"}>
-            <label for="${bub.ids[0]}">Überschrift</label>
+            <label for="${bub.ids[0]}">${tx("Überschrift")}</label>
             <input type="text" id="${bub.ids[0]}" maxlength="80" value="${escapeHtml(cfg[fTitle])}" data-field-of="${bub.key}">
-            <label for="${bub.ids[1]}">Nachricht</label>
+            <label for="${bub.ids[1]}">${tx("Nachricht")}</label>
             <textarea id="${bub.ids[1]}" rows="2" maxlength="200" data-field-of="${bub.key}">${escapeHtml(cfg[fBody])}</textarea>
-            <div class="muted" style="font-size:12px;margin-top:8px;">Antippen fügt ein Stück ein, das beim Senden automatisch ersetzt wird:</div>
+            <div class="muted" style="font-size:12px;margin-top:8px;">${tx("Antippen fügt ein Stück ein, das beim Senden automatisch ersetzt wird:")}</div>
             <div class="chips">${chips}</div>
             <div class="notif-actions" style="margin-top:0;">
-              <button type="button" class="small" data-save-text="${bub.key}">Speichern</button>
-              <button type="button" class="small secondary" data-default-text="${bub.key}">Standardtext</button>
-              <button type="button" class="small secondary" data-cancel-text="${bub.key}">Abbrechen</button>
+              <button type="button" class="small" data-save-text="${bub.key}">${tx("Speichern")}</button>
+              <button type="button" class="small secondary" data-default-text="${bub.key}">${tx("Standardtext")}</button>
+              <button type="button" class="small secondary" data-cancel-text="${bub.key}">${tx("Abbrechen")}</button>
             </div>
             <div class="error" id="ed-${bub.key}-err"></div>
           </div>`;
@@ -1264,35 +1274,36 @@
         <div class="notif-item ${cfg.enabled ? "" : "is-off"}" data-kind="${k.kind}">
           <div class="notif-head">
             <div><div class="notif-title">${k.title}</div><div class="setting-hint">${k.desc}</div></div>
-            <input type="checkbox" class="toggle" id="nc-${k.kind}-enabled" aria-label="${k.title} ein- oder ausschalten" ${cfg.enabled ? "checked" : ""}>
+            <input type="checkbox" class="toggle" id="nc-${k.kind}-enabled" aria-label="${tx("{title} ein- oder ausschalten", { title: k.title })}" ${cfg.enabled ? "checked" : ""}>
           </div>
-          ${k.hours ? `<div class="notif-when">Senden <input type="number" id="nc-${k.kind}-hours" min="1" max="72" step="1" value="${cfg.hoursBefore}" aria-label="Stunden vor dem Training"> Stunden vor dem Training</div>` : ""}
+          ${k.hours ? `<div class="notif-when">${tx("Senden")} <input type="number" id="nc-${k.kind}-hours" min="1" max="72" step="1" value="${cfg.hoursBefore}" aria-label="${tx("Stunden vor dem Training")}"> ${tx("Stunden vor dem Training")}</div>` : ""}
           ${bubblesHtml}
-          <div class="notif-actions" style="margin-top:12px;"><button type="button" class="small secondary btn-test-notif" data-kind="${k.kind}">Test an mich senden</button></div>
+          <div class="notif-actions" style="margin-top:12px;"><button type="button" class="small secondary btn-test-notif" data-kind="${k.kind}">${tx("Test an mich senden")}</button></div>
         </div>`;
     };
 
     return `
       <div id="notif-root">
-        ${state.notifAvailable ? "" : `<div class="error">Benachrichtigungen sind auf dem Server nicht verfügbar (Paket „web-push“ fehlt).</div>`}
-        <p class="muted" style="margin-top:14px;">Spieler schalten Benachrichtigungen selbst auf ihrem Handy ein (Reiter „Trainings“, ganz unten).</p>
+        ${state.notifAvailable ? "" : `<div class="error">${tx("Benachrichtigungen sind auf dem Server nicht verfügbar (Paket „web-push“ fehlt).")}</div>`}
+        <p class="muted" style="margin-top:14px;">${tx("Spieler schalten Benachrichtigungen selbst auf ihrem Handy ein (Reiter „Trainings“, ganz unten).")}</p>
+        <p class="muted" style="margin-top:6px;">${tx("Hier bearbeitest du die Texte für Spieler, die die App auf Deutsch nutzen. Die englischen Texte bearbeitest du, indem du oben (Weltsymbol) die Sprache auf English stellst.")}</p>
         <div class="status-chips">
-          <span class="chip-info">${st.devices} Gerät${st.devices === 1 ? "" : "e"} · ${st.players} Spieler angemeldet</span>
+          <span class="chip-info">${st.devices === 1 ? tx("1 Gerät") : tx("{n} Geräte", { n: st.devices })} · ${st.players === 1 ? tx("1 Spieler") : tx("{n} Spieler", { n: st.players })} ${tx("angemeldet")}</span>
           <span class="chip-info ${tickClass}">${tickText}</span>
         </div>
         <div class="save-flash" id="nc-flash" aria-live="polite"></div>
         ${NOTIF_KINDS.map(itemHtml).join("")}
         <details class="hint-box">
-          <summary>Erinnerung und Übersicht pünktlich senden</summary>
-          <p class="muted" style="margin:0 0 8px;">Diese beiden Nachrichten brauchen einen Wecker, der die App regelmäßig „nachschauen“ lässt. Das erledigt ein kostenloser Dienst:</p>
+          <summary>${tx("Erinnerung und Übersicht pünktlich senden")}</summary>
+          <p class="muted" style="margin:0 0 8px;">${tx("Diese beiden Nachrichten brauchen einen Wecker, der die App regelmäßig „nachschauen“ lässt. Das erledigt ein kostenloser Dienst:")}</p>
           <ol>
-            <li>Auf <b>cron-job.org</b> kostenlos registrieren.</li>
-            <li>Einen neuen „Cronjob“ anlegen und diese Adresse eintragen:</li>
-            <li>Ausführung auf „alle 10 Minuten“ stellen.</li>
+            <li>${tx("Auf")} <b>cron-job.org</b> ${tx("kostenlos registrieren.")}</li>
+            <li>${tx("Einen neuen „Cronjob“ anlegen und diese Adresse eintragen:")}</li>
+            <li>${tx("Ausführung auf „alle 10 Minuten“ stellen.")}</li>
           </ol>
           <code class="url-box" id="tick-url">${escapeHtml(tickUrl)}</code>
-          <div style="margin:6px 0 12px;"><button type="button" class="small secondary" id="btn-copy-tick-url">Adresse kopieren</button></div>
-          <p class="muted" style="font-size:12px;margin:0 0 10px;">Ohne diesen Wecker schaut Vercel nur einmal am Tag nach, die Nachrichten kommen dann ungenau. Änderungen und Absagen werden immer sofort gesendet.</p>
+          <div style="margin:6px 0 12px;"><button type="button" class="small secondary" id="btn-copy-tick-url">${tx("Adresse kopieren")}</button></div>
+          <p class="muted" style="font-size:12px;margin:0 0 10px;">${tx("Ohne diesen Wecker schaut Vercel nur einmal am Tag nach, die Nachrichten kommen dann ungenau. Änderungen und Absagen werden immer sofort gesendet.")}</p>
         </details>
       </div>`;
   }
@@ -1339,7 +1350,7 @@
       cb.onchange = async () => {
         const v = cb.checked;
         item.classList.toggle("is-off", !v);
-        try { await savePatch({ [k.kind]: { enabled: v } }); flash("Gespeichert ✓"); }
+        try { await savePatch({ [k.kind]: { enabled: v } }); flash(tx("Gespeichert ✓")); }
         catch (e) { cb.checked = !v; item.classList.toggle("is-off", v); flash(e.message, true); }
       };
       if (k.hours) {
@@ -1348,10 +1359,10 @@
           const n = Number(h.value);
           if (!Number.isInteger(n) || n < 1 || n > 72) {
             h.value = state.notifCfg[k.kind].hoursBefore;
-            flash("Bitte eine ganze Zahl zwischen 1 und 72 eintragen.", true);
+            flash(tx("Bitte eine ganze Zahl zwischen 1 und 72 eintragen."), true);
             return;
           }
-          try { await savePatch({ [k.kind]: { hoursBefore: n } }); flash("Gespeichert ✓"); }
+          try { await savePatch({ [k.kind]: { hoursBefore: n } }); flash(tx("Gespeichert ✓")); }
           catch (e) { h.value = state.notifCfg[k.kind].hoursBefore; flash(e.message, true); }
         };
       }
@@ -1381,7 +1392,7 @@
         await savePatch({ [b.kind]: { [b.fields[0]]: document.getElementById(b.ids[0]).value, [b.fields[1]]: document.getElementById(b.ids[1]).value } });
         resetInputs(key); // zeigt, was der Server wirklich gespeichert hat (leer = Standardtext)
         closeEditor(key);
-        flash("Text gespeichert ✓");
+        flash(tx("Text gespeichert ✓"));
         return true;
       } catch (e) {
         err.textContent = e.message;
@@ -1434,7 +1445,7 @@
         btn.disabled = true;
         try {
           const r = await api("/notifications/test", { method: "POST", body: { kind } });
-          flash(`Test gesendet an ${r.sent} von ${r.devices} deiner Geräte.`);
+          flash(tx("Test gesendet an {sent} von {devices} deiner Geräte.", { sent: r.sent, devices: r.devices }));
         } catch (e) {
           flash(e.message, true);
         }
@@ -1445,13 +1456,13 @@
     const copy = document.getElementById("btn-copy-tick-url");
     if (copy) copy.onclick = async () => {
       const url = document.getElementById("tick-url").textContent;
-      try { await navigator.clipboard.writeText(url); copy.textContent = "Kopiert ✓"; }
+      try { await navigator.clipboard.writeText(url); copy.textContent = tx("Kopiert ✓"); }
       catch (e) {
         const range = document.createRange(); range.selectNodeContents(document.getElementById("tick-url"));
         const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
-        copy.textContent = "Markiert – jetzt kopieren";
+        copy.textContent = tx("Markiert – jetzt kopieren");
       }
-      setTimeout(() => { copy.textContent = "Adresse kopieren"; }, 2500);
+      setTimeout(() => { copy.textContent = tx("Adresse kopieren"); }, 2500);
     };
   }
 
@@ -1468,17 +1479,17 @@
 
   function renderLogSection() {
     if (state.logError) {
-      return `<div class="card"><h2>Protokoll</h2><div class="error">${escapeHtml(state.logError)}</div>
-        <div style="margin-top:10px;"><button class="small secondary" id="btn-log-refresh">Erneut versuchen</button></div></div>`;
+      return `<div class="card"><h2>${tx("Protokoll")}</h2><div class="error">${escapeHtml(state.logError)}</div>
+        <div style="margin-top:10px;"><button class="small secondary" id="btn-log-refresh">${tx("Erneut versuchen")}</button></div></div>`;
     }
     if (!state.logEntries) {
-      return `<div class="card"><h2>Protokoll</h2><p class="muted"><span class="spinner"></span> Lade …</p></div>`;
+      return `<div class="card"><h2>${tx("Protokoll")}</h2><p class="muted"><span class="spinner"></span> ${tx("Lade …")}</p></div>`;
     }
     const TZ = "Europe/Vienna";
     const dayKey = (d) => new Intl.DateTimeFormat("sv-SE", { timeZone: TZ }).format(d); // YYYY-MM-DD
     const todayKey = dayKey(new Date());
     const yesterdayKey = dayKey(new Date(Date.now() - 24 * 3600 * 1000));
-    const filters = [["alle", "Alle"], ["rsvp", "Rückmeldungen"], ["verwaltung", "Verwaltung"], ["konto", "Konten"]];
+    const filters = [["alle", tx("Alle")], ["rsvp", tx("Rückmeldungen")], ["verwaltung", tx("Verwaltung")], ["konto", tx("Konten")]];
     const list = state.logFilter === "alle" ? state.logEntries : state.logEntries.filter((e) => e.category === state.logFilter);
     const shown = list.slice(0, state.logShown);
 
@@ -1489,31 +1500,31 @@
       const key = dayKey(d);
       if (key !== lastDay) {
         lastDay = key;
-        const label = key === todayKey ? "Heute" : key === yesterdayKey ? "Gestern"
-          : d.toLocaleDateString("de-AT", { timeZone: TZ, weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
+        const label = key === todayKey ? tx("Heute") : key === yesterdayKey ? tx("Gestern")
+          : d.toLocaleDateString(I18N.locale(), { timeZone: TZ, weekday: "short", day: "2-digit", month: "2-digit", year: "numeric" });
         html += `<div class="log-day">${escapeHtml(label)}</div>`;
       }
-      const time = d.toLocaleTimeString("de-AT", { timeZone: TZ, hour: "2-digit", minute: "2-digit" });
+      const time = d.toLocaleTimeString(I18N.locale(), { timeZone: TZ, hour: "2-digit", minute: "2-digit", hour12: false });
       html += `
         <div class="log-item log-${escapeHtml(e.category)}${e.tag ? ` log-tag-${escapeHtml(e.tag)}` : ""}">
           <div class="log-time">${escapeHtml(time)}</div>
-          <div class="log-body"><b>${escapeHtml(e.actor || "Nicht angemeldet")}</b> · ${escapeHtml(e.text)}</div>
+          <div class="log-body"><b>${escapeHtml(e.actor || tx("Nicht angemeldet"))}</b> · ${escapeHtml(e.text)}</div>
         </div>`;
     });
 
     return `
       <div class="card">
         <div class="top-bar">
-          <h2 style="margin:0;">Protokoll</h2>
-          <button class="small secondary" id="btn-log-refresh">Aktualisieren</button>
+          <h2 style="margin:0;">${tx("Protokoll")}</h2>
+          <button class="small secondary" id="btn-log-refresh">${tx("Aktualisieren")}</button>
         </div>
-        <p class="muted" style="margin:6px 0 10px;">Alle Aktionen der letzten ${state.logRetentionDays || 7} Tage (Zeiten in Wiener Zeit). Ältere Einträge werden automatisch gelöscht.</p>
+        <p class="muted" style="margin:6px 0 10px;">${tx("Alle Aktionen der letzten {days} Tage (Zeiten in Wiener Zeit). Ältere Einträge werden automatisch gelöscht.", { days: state.logRetentionDays || 7 })}</p>
         <div class="log-filters">
           ${filters.map(([key, label]) => `<button class="small ${state.logFilter === key ? "" : "secondary"}" data-log-filter="${key}">${label}</button>`).join("")}
         </div>
-        <div class="muted" style="margin:10px 0 0;">${list.length} Eintrag${list.length === 1 ? "" : "e"}</div>
-        ${list.length === 0 ? `<div class="empty">Keine Einträge in diesem Zeitraum.</div>` : html}
-        ${list.length > shown.length ? `<div style="margin-top:12px;"><button class="small secondary" id="btn-log-more">Mehr anzeigen (${list.length - shown.length} weitere)</button></div>` : ""}
+        <div class="muted" style="margin:10px 0 0;">${list.length === 1 ? tx("1 Eintrag") : tx("{n} Einträge", { n: list.length })}</div>
+        ${list.length === 0 ? `<div class="empty">${tx("Keine Einträge in diesem Zeitraum.")}</div>` : html}
+        ${list.length > shown.length ? `<div style="margin-top:12px;"><button class="small secondary" id="btn-log-more">${tx("Mehr anzeigen ({n} weitere)", { n: list.length - shown.length })}</button></div>` : ""}
       </div>`;
   }
 
@@ -1530,16 +1541,16 @@
     if (state.editingSeasonId === s.id) {
       return `
         <div class="list-item" style="display:block;" data-season-edit-id="${s.id}">
-          <label>Name</label>
+          <label>${tx("Name")}</label>
           <input type="text" class="se-name" value="${escapeHtml(s.name)}">
           <div class="row">
-            <div><label>Von</label><input type="date" class="se-start" value="${escapeHtml(s.startDate)}"></div>
-            <div><label>Bis</label><input type="date" class="se-end" value="${escapeHtml(s.endDate)}"></div>
+            <div><label>${tx("Von")}</label><input type="date" class="se-start" value="${escapeHtml(s.startDate)}"></div>
+            <div><label>${tx("Bis")}</label><input type="date" class="se-end" value="${escapeHtml(s.endDate)}"></div>
           </div>
           <div class="error se-error"></div>
           <div style="margin-top:8px;display:flex;gap:8px;">
-            <button class="small btn-save-season" data-season-id="${s.id}">Speichern</button>
-            <button class="small secondary btn-cancel-season">Abbrechen</button>
+            <button class="small btn-save-season" data-season-id="${s.id}">${tx("Speichern")}</button>
+            <button class="small secondary btn-cancel-season">${tx("Abbrechen")}</button>
           </div>
         </div>`;
     }
@@ -1547,8 +1558,8 @@
       <div class="list-item">
         <span>${escapeHtml(s.name)} <span class="muted">(${fmtDate(s.startDate)} – ${fmtDate(s.endDate)})</span></span>
         <span>
-          <button class="small secondary btn-edit-season" data-season-id="${s.id}">Bearbeiten</button>
-          ${canDelete ? `<button class="small secondary btn-delete-season" data-season-id="${s.id}">Löschen</button>` : ""}
+          <button class="small secondary btn-edit-season" data-season-id="${s.id}">${tx("Bearbeiten")}</button>
+          ${canDelete ? `<button class="small secondary btn-delete-season" data-season-id="${s.id}">${tx("Löschen")}</button>` : ""}
         </span>
       </div>`;
   }
@@ -1566,74 +1577,74 @@
 
     return `
       <div class="tabs admin-tabs">
-          <button class="${state.adminSection === "trainings" ? "" : "secondary"}" data-admin-section="trainings">Trainings</button>
-          <button class="${state.adminSection === "spielplan" ? "" : "secondary"}" data-admin-section="spielplan">Spielplan</button>
-          <button class="${state.adminSection === "spieler" ? "" : "secondary"}" data-admin-section="spieler">Spieler</button>
-          <button class="${state.adminSection === "optionen" ? "" : "secondary"}" data-admin-section="optionen">Optionen</button>
-          <button class="${state.adminSection === "protokoll" ? "" : "secondary"}" data-admin-section="protokoll">Protokoll</button>
+          <button class="${state.adminSection === "trainings" ? "" : "secondary"}" data-admin-section="trainings">${tx("Trainings")}</button>
+          <button class="${state.adminSection === "spielplan" ? "" : "secondary"}" data-admin-section="spielplan">${tx("Spielplan")}</button>
+          <button class="${state.adminSection === "spieler" ? "" : "secondary"}" data-admin-section="spieler">${tx("Spieler")}</button>
+          <button class="${state.adminSection === "optionen" ? "" : "secondary"}" data-admin-section="optionen">${tx("Optionen")}</button>
+          <button class="${state.adminSection === "protokoll" ? "" : "secondary"}" data-admin-section="protokoll">${tx("Protokoll")}</button>
       </div>
 
       <div class="admin-section" data-section="trainings" ${state.adminSection === "trainings" ? "" : "hidden"}>
       <div class="card">
-        <h2>Trainings verwalten &amp; Gastspieler eintragen</h2>
+        <h2>${tx("Trainings verwalten &amp; Gastspieler eintragen")}</h2>
         ${renderWeekNav()}
-        ${state.trainings.length === 0 ? '<p class="empty">Noch keine Trainings.</p>' : visible.length === 0 ? '<p class="empty">Keine Trainings in dieser Woche.</p>' : visible.map((t) => {
+        ${state.trainings.length === 0 ? tx('<p class="empty">Noch keine Trainings.</p>') : visible.length === 0 ? tx('<p class="empty">Keine Trainings in dieser Woche.</p>') : visible.map((t) => {
           const guests = t.guests || [];
           const isEditing = state.editingTrainingId === t.id;
           return `
           <div class="training" data-admin-id="${t.id}">
             ${isEditing ? `
             <div class="row">
-              <div><label>Datum</label><input type="date" class="edit-date" value="${t.date}"></div>
-              <div><label>Uhrzeit</label><input type="time" class="edit-time" value="${t.time}"></div>
+              <div><label>${tx("Datum")}</label><input type="date" class="edit-date" value="${t.date}"></div>
+              <div><label>${tx("Uhrzeit")}</label><input type="time" class="edit-time" value="${t.time}"></div>
             </div>
-            <label>Ort</label>
+            <label>${tx("Ort")}</label>
             <input type="text" class="edit-ort" value="${escapeHtml(t.ort || "")}">
-            <label>Hinweis (optional)</label>
+            <label>${tx("Hinweis (optional)")}</label>
             <input type="text" class="edit-note" value="${escapeHtml(t.note || "")}">
             <div class="error edit-error" style="display:none;"></div>
             <div class="row" style="margin-top:8px;">
-              <button class="small btn-save-training" style="flex:0 0 auto;">Speichern</button>
-              <button class="small secondary btn-cancel-edit-training" style="flex:0 0 auto;">Abbrechen</button>
+              <button class="small btn-save-training" style="flex:0 0 auto;">${tx("Speichern")}</button>
+              <button class="small secondary btn-cancel-edit-training" style="flex:0 0 auto;">${tx("Abbrechen")}</button>
             </div>
             ` : `
             <div class="head">
               <div>
-                <div class="when">${fmtDate(t.date)} · ${t.time} Uhr</div>
+                <div class="when">${fmtDate(t.date)} · ${uhr(t.time)}</div>
                 <div class="where">${escapeHtml(t.ort || "")}</div>
                 ${t.note ? `<div class="muted" style="margin-top:4px;">${escapeHtml(t.note)}</div>` : ""}
               </div>
               <span class="row" style="max-width:200px;">
-                <button class="small secondary btn-edit-training">Bearbeiten</button>
-                <button class="small secondary btn-delete-training">Löschen</button>
+                <button class="small secondary btn-edit-training">${tx("Bearbeiten")}</button>
+                <button class="small secondary btn-delete-training">${tx("Löschen")}</button>
               </span>
             </div>
-            <label style="margin-top:10px;">Gastspieler für dieses Training hinzufügen</label>
+            <label style="margin-top:10px;">${tx("Gastspieler für dieses Training hinzufügen")}</label>
             <div class="row">
-              <input type="text" class="guest-name-input" placeholder="Name des Gastspielers">
-              <button class="small btn-add-guest" style="flex:0 0 auto;">Hinzufügen</button>
+              <input type="text" class="guest-name-input" placeholder="${tx("Name des Gastspielers")}">
+              <button class="small btn-add-guest" style="flex:0 0 auto;">${tx("Hinzufügen")}</button>
             </div>
             <div class="guest-error error" style="display:none;"></div>
             ${guests.length > 0 ? `
             <div style="margin-top:8px;">
               ${guests.map((g) => `<span class="pill zusage" style="margin:2px 4px 2px 0;">${escapeHtml(g.name)} <a href="#" class="guest-remove" data-guest-id="${g.id}" style="color:inherit;text-decoration:none;">✕</a></span>`).join("")}
-            </div>` : `<p class="muted" style="margin-top:8px;">Noch keine Gastspieler für dieses Training.</p>`}
+            </div>` : `<p class="muted" style="margin-top:8px;">${tx("Noch keine Gastspieler für dieses Training.")}</p>`}
 
-            <label style="margin-top:14px;">Rückmeldung für einen Spieler eintragen/ändern</label>
-            <p class="muted" style="font-size:11.5px;margin:2px 0 6px;">Z. B. wenn die Abstimmfrist (1 Std. vor Trainingsbeginn) schon vorbei ist, oder um rückwirkend etwas einzutragen.</p>
+            <label style="margin-top:14px;">${tx("Rückmeldung für einen Spieler eintragen/ändern")}</label>
+            <p class="muted" style="font-size:11.5px;margin:2px 0 6px;">${tx("Z. B. wenn die Abstimmfrist (1 Std. vor Trainingsbeginn) schon vorbei ist, oder um rückwirkend etwas einzutragen.")}</p>
             <select class="admin-rsvp-player">
-              <option value="">– Spieler wählen –</option>
+              <option value="">${tx("– Spieler wählen –")}</option>
               ${state.players.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join("")}
             </select>
             <div class="rsvp-buttons admin-rsvp-buttons" style="margin-top:8px;">
-              <button data-status="zusage" class="inactive">Zusage</button>
-              <button data-status="vielleicht" class="inactive">Vielleicht</button>
-              <button data-status="absage" class="inactive">Absage</button>
+              <button data-status="zusage" class="inactive">${tx("Zusage")}</button>
+              <button data-status="vielleicht" class="inactive">${tx("Vielleicht")}</button>
+              <button data-status="absage" class="inactive">${tx("Absage")}</button>
             </div>
             <div class="admin-rsvp-reason-box" style="display:none;margin-top:8px;">
-              <textarea class="admin-rsvp-reason-input" placeholder="Grund (Pflichtfeld bei Vielleicht/Absage)"></textarea>
-              <div class="error admin-rsvp-reason-error" style="display:none;">Bitte einen Grund angeben.</div>
-              <div style="margin-top:6px;"><button class="small admin-rsvp-save">Speichern</button></div>
+              <textarea class="admin-rsvp-reason-input" placeholder="${tx("Grund (Pflichtfeld bei Vielleicht/Absage)")}"></textarea>
+              <div class="error admin-rsvp-reason-error" style="display:none;">${tx("Bitte einen Grund angeben.")}</div>
+              <div style="margin-top:6px;"><button class="small admin-rsvp-save">${tx("Speichern")}</button></div>
             </div>
             <div class="admin-rsvp-error error" style="display:none;"></div>
             <div class="admin-rsvp-status muted" style="margin-top:4px;font-size:12px;">${escapeHtml(state.adminRsvpFeedback[t.id] || "")}</div>
@@ -1643,89 +1654,89 @@
       </div>
 
       <div class="card">
-        <h2>Neues Training anlegen</h2>
+        <h2>${tx("Neues Training anlegen")}</h2>
         <div class="row">
-          <div><label>Datum</label><input type="date" id="new-date"></div>
-          <div><label>Uhrzeit</label><input type="time" id="new-time" value="19:00"></div>
+          <div><label>${tx("Datum")}</label><input type="date" id="new-date"></div>
+          <div><label>${tx("Uhrzeit")}</label><input type="time" id="new-time" value="19:00"></div>
         </div>
-        <label>Ort</label>
-        <input type="text" id="new-ort" placeholder="z. B. Sportplatz Hauptplatz 1">
-        <label>Hinweis (optional)</label>
-        <input type="text" id="new-note" placeholder="z. B. Balldienst: Max &amp; Julia, Zusatztraining …">
+        <label>${tx("Ort")}</label>
+        <input type="text" id="new-ort" placeholder="${tx("z. B. Sportplatz Hauptplatz 1")}">
+        <label>${tx("Hinweis (optional)")}</label>
+        <input type="text" id="new-note" placeholder="${tx("z. B. Balldienst: Max &amp; Julia, Zusatztraining …")}">
         <div id="new-error" class="error"></div>
-        <div style="margin-top:12px;"><button id="btn-add-training">Training anlegen</button></div>
+        <div style="margin-top:12px;"><button id="btn-add-training">${tx("Training anlegen")}</button></div>
       </div>
 
       <div class="card">
-        <h2>Serientermine anlegen</h2>
-        <p class="muted">Legt für jeden ausgewählten Wochentag im gewählten Zeitraum automatisch ein Training an — praktisch für eine ganze Saison auf einmal.</p>
-        <label>Wochentage</label>
+        <h2>${tx("Serientermine anlegen")}</h2>
+        <p class="muted">${tx("Legt für jeden ausgewählten Wochentag im gewählten Zeitraum automatisch ein Training an — praktisch für eine ganze Saison auf einmal.")}</p>
+        <label>${tx("Wochentage")}</label>
         <div class="weekday-checks">
-          <label><input type="checkbox" id="series-mo" checked> Mo</label>
-          <label><input type="checkbox" id="series-di" checked> Di</label>
-          <label><input type="checkbox" id="series-mi"> Mi</label>
-          <label><input type="checkbox" id="series-do" checked> Do</label>
-          <label><input type="checkbox" id="series-fr"> Fr</label>
-          <label><input type="checkbox" id="series-sa"> Sa</label>
-          <label><input type="checkbox" id="series-so"> So</label>
+          <label><input type="checkbox" id="series-mo" checked> ${tx("Mo")}</label>
+          <label><input type="checkbox" id="series-di" checked> ${tx("Di")}</label>
+          <label><input type="checkbox" id="series-mi"> ${tx("Mi")}</label>
+          <label><input type="checkbox" id="series-do" checked> ${tx("Do")}</label>
+          <label><input type="checkbox" id="series-fr"> ${tx("Fr")}</label>
+          <label><input type="checkbox" id="series-sa"> ${tx("Sa")}</label>
+          <label><input type="checkbox" id="series-so"> ${tx("So")}</label>
         </div>
         <div class="row">
-          <div><label>Uhrzeit</label><input type="time" id="series-time" value="19:00"></div>
-          <div><label>Ort</label><input type="text" id="series-ort" placeholder="z. B. Sportplatz Hauptplatz 1"></div>
+          <div><label>${tx("Uhrzeit")}</label><input type="time" id="series-time" value="19:00"></div>
+          <div><label>${tx("Ort")}</label><input type="text" id="series-ort" placeholder="${tx("z. B. Sportplatz Hauptplatz 1")}"></div>
         </div>
-        <label>Hinweis (optional)</label>
-        <input type="text" id="series-note" placeholder="z. B. Sommer-Trainingsblock">
+        <label>${tx("Hinweis (optional)")}</label>
+        <input type="text" id="series-note" placeholder="${tx("z. B. Sommer-Trainingsblock")}">
         <div class="row">
-          <div><label>Von</label><input type="date" id="series-start"></div>
-          <div><label>Bis</label><input type="date" id="series-end"></div>
+          <div><label>${tx("Von")}</label><input type="date" id="series-start"></div>
+          <div><label>${tx("Bis")}</label><input type="date" id="series-end"></div>
         </div>
         <div id="series-error" class="error"></div>
         <div id="series-status" class="info"></div>
-        <div style="margin-top:12px;"><button id="btn-create-series">Serientermine erstellen</button></div>
+        <div style="margin-top:12px;"><button id="btn-create-series">${tx("Serientermine erstellen")}</button></div>
       </div>
       </div>
 
       <div class="admin-section" data-section="spielplan" ${state.adminSection === "spielplan" ? "" : "hidden"}>
       <div class="card">
         <div class="top-bar">
-          <h2 style="margin:0;">Spielplan (${upcomingMatches.length} bevorstehend)</h2>
-          <button class="small secondary" id="btn-toggle-matches-list">${state.matchesListOpen ? "Ausblenden" : "Anzeigen"}</button>
+          <h2 style="margin:0;">${tx("Spielplan ({n} bevorstehend)", { n: upcomingMatches.length })}</h2>
+          <button class="small secondary" id="btn-toggle-matches-list">${state.matchesListOpen ? tx("Ausblenden") : tx("Anzeigen")}</button>
         </div>
-        <p class="muted">Das zeitlich nächste Spiel wird automatisch oben im Trainingsplan als Banner angezeigt.</p>
+        <p class="muted">${tx("Das zeitlich nächste Spiel wird automatisch oben im Trainingsplan als Banner angezeigt.")}</p>
 
         ${state.matchesListOpen ? `
-        ${matchesToShow.length === 0 ? `<p class="empty">${state.showPastMatches ? "Noch keine Spiele eingetragen." : "Keine bevorstehenden Spiele eingetragen."}</p>` : matchesToShow.map((m) => {
+        ${matchesToShow.length === 0 ? `<p class="empty">${state.showPastMatches ? tx("Noch keine Spiele eingetragen.") : tx("Keine bevorstehenden Spiele eingetragen.")}</p>` : matchesToShow.map((m) => {
           const isEditingMatch = state.editingMatchId === m.id;
           if (isEditingMatch) {
             return `
             <div class="training" data-match-edit-id="${m.id}">
               <div class="row">
-                <div><label>Gegner</label><input type="text" class="em-opponent" value="${escapeHtml(m.opponent)}"></div>
-                <div><label>Heim/Auswärts</label>
+                <div><label>${tx("Gegner")}</label><input type="text" class="em-opponent" value="${escapeHtml(m.opponent)}"></div>
+                <div><label>${tx("Heim/Auswärts")}</label>
                   <select class="em-is-home">
-                    <option value="1" ${m.isHome ? "selected" : ""}>Heimspiel</option>
-                    <option value="0" ${!m.isHome ? "selected" : ""}>Auswärtsspiel</option>
+                    <option value="1" ${m.isHome ? "selected" : ""}>${tx("Heimspiel")}</option>
+                    <option value="0" ${!m.isHome ? "selected" : ""}>${tx("Auswärtsspiel")}</option>
                   </select>
                 </div>
               </div>
               <div class="row">
-                <div><label>Datum</label><input type="date" class="em-date" value="${m.date}"></div>
-                <div><label>Uhrzeit</label><input type="time" class="em-time" value="${m.time}"></div>
+                <div><label>${tx("Datum")}</label><input type="date" class="em-date" value="${m.date}"></div>
+                <div><label>${tx("Uhrzeit")}</label><input type="time" class="em-time" value="${m.time}"></div>
               </div>
-              <label>Gegner-Logo (Bild-URL, optional)</label>
+              <label>${tx("Gegner-Logo (Bild-URL, optional)")}</label>
               <input type="text" class="em-logo" value="${escapeHtml(m.opponentLogoUrl || "")}">
               <div class="row">
-                <div><label>Runde (optional)</label><input type="text" class="em-round" value="${escapeHtml(m.round || "")}"></div>
-                <div><label>Schiedsrichter (optional)</label><input type="text" class="em-referee" value="${escapeHtml(m.referee || "")}"></div>
+                <div><label>${tx("Runde (optional)")}</label><input type="text" class="em-round" value="${escapeHtml(m.round || "")}"></div>
+                <div><label>${tx("Schiedsrichter (optional)")}</label><input type="text" class="em-referee" value="${escapeHtml(m.referee || "")}"></div>
               </div>
-              <label>Ort (optional)</label>
+              <label>${tx("Ort (optional)")}</label>
               <input type="text" class="em-ort" value="${escapeHtml(m.ort || "")}">
-              <label>Hinweis (optional)</label>
+              <label>${tx("Hinweis (optional)")}</label>
               <input type="text" class="em-note" value="${escapeHtml(m.note || "")}">
               <div class="error em-error" style="display:none;"></div>
               <div class="row" style="margin-top:8px;">
-                <button class="small btn-save-match" style="flex:0 0 auto;">Speichern</button>
-                <button class="small secondary btn-cancel-edit-match" style="flex:0 0 auto;">Abbrechen</button>
+                <button class="small btn-save-match" style="flex:0 0 auto;">${tx("Speichern")}</button>
+                <button class="small secondary btn-cancel-edit-match" style="flex:0 0 auto;">${tx("Abbrechen")}</button>
               </div>
             </div>`;
           }
@@ -1733,66 +1744,63 @@
           <div class="list-item">
             <span style="display:flex;align-items:center;gap:8px;">
               ${m.opponentLogoUrl ? `<img src="${escapeHtml(m.opponentLogoUrl)}" alt="" class="match-logo-sm">` : ""}
-              <span>${m.round ? `<span class="muted">${escapeHtml(m.round)}:</span> ` : ""}${m.isHome ? `${CLUB_NAME} – ${escapeHtml(m.opponent)}` : `${escapeHtml(m.opponent)} – ${CLUB_NAME}`} <span class="muted">(${fmtDate(m.date)}, ${m.time} Uhr)</span></span>
+              <span>${m.round ? `<span class="muted">${escapeHtml(m.round)}:</span> ` : ""}${m.isHome ? `${CLUB_NAME} – ${escapeHtml(m.opponent)}` : `${escapeHtml(m.opponent)} – ${CLUB_NAME}`} <span class="muted">(${fmtDate(m.date)}, ${uhr(m.time)})</span></span>
             </span>
             <span class="row" style="max-width:200px;">
-              <button class="small secondary btn-edit-match" data-match-id="${m.id}">Bearbeiten</button>
-              <button class="small secondary btn-delete-match" data-match-id="${m.id}">Löschen</button>
+              <button class="small secondary btn-edit-match" data-match-id="${m.id}">${tx("Bearbeiten")}</button>
+              <button class="small secondary btn-delete-match" data-match-id="${m.id}">${tx("Löschen")}</button>
             </span>
           </div>`;
         }).join("")}
         ${pastMatches.length > 0 ? `
         <div style="margin-top:10px;">
-          <button class="small secondary" id="btn-toggle-past-matches">${state.showPastMatches ? "Vergangene Spiele ausblenden" : `${pastMatches.length} vergangene Spiele anzeigen`}</button>
+          <button class="small secondary" id="btn-toggle-past-matches">${state.showPastMatches ? tx("Vergangene Spiele ausblenden") : tx("{n} vergangene Spiele anzeigen", { n: pastMatches.length })}</button>
         </div>` : ""}
         ` : ""}
 
         <details style="margin-top:16px;">
-          <summary style="cursor:pointer;font-weight:600;font-size:13.5px;color:var(--grass-dark);">📥 Mehrere Spiele auf einmal importieren (z. B. für eine neue Saison)</summary>
+          <summary style="cursor:pointer;font-weight:600;font-size:13.5px;color:var(--grass-dark);">${tx("📥 Mehrere Spiele auf einmal importieren (z. B. für eine neue Saison)")}</summary>
           <p class="muted" style="margin-top:8px;">
-            Praktisch für den Saisonstart: Statt jedes Spiel einzeln einzutippen, hier eine
-            Liste im JSON-Format einfügen. Genau dieses Format kann z. B. eine KI (wie Claude)
-            anhand des Spielplans einer neuen Saison für euch erzeugen — einfach den Spielplan
-            (z. B. von fan.at) nennen und um eine Liste "in diesem exakten JSON-Format" bitten.
+            ${tx("Praktisch für den Saisonstart: Statt jedes Spiel einzeln einzutippen, hier eine\n            Liste im JSON-Format einfügen. Genau dieses Format kann z. B. eine KI (wie Claude)\n            anhand des Spielplans einer neuen Saison für euch erzeugen — einfach den Spielplan\n            (z. B. von fan.at) nennen und um eine Liste \"in diesem exakten JSON-Format\" bitten.")}
           </p>
-          <p class="muted" style="font-size:12px;">Pflichtfelder: opponent, date (JJJJ-MM-TT), time (SS:MM), isHome (true/false). Optional: round, opponentLogoUrl, ort, referee, note.</p>
+          <p class="muted" style="font-size:12px;">${tx("Pflichtfelder: opponent, date (JJJJ-MM-TT), time (SS:MM), isHome (true/false). Optional: round, opponentLogoUrl, ort, referee, note.")}</p>
           <div style="margin-bottom:6px;">
-            <button type="button" class="small secondary" id="btn-copy-format">📋 Format-Vorlage kopieren</button>
+            <button type="button" class="small secondary" id="btn-copy-format">${tx("📋 Format-Vorlage kopieren")}</button>
             <span id="copy-format-feedback" class="muted" style="margin-left:6px;"></span>
           </div>
           <textarea id="bulk-matches-json" rows="8" style="font-family:monospace;font-size:12px;" placeholder="${escapeHtml(BULK_MATCH_FORMAT_EXAMPLE)}"></textarea>
           <div id="bulk-import-error" class="error" style="display:none;"></div>
           <div id="bulk-import-status" class="info"></div>
-          <div style="margin-top:8px;"><button class="small" id="btn-bulk-import-matches">Spiele aus JSON importieren</button></div>
+          <div style="margin-top:8px;"><button class="small" id="btn-bulk-import-matches">${tx("Spiele aus JSON importieren")}</button></div>
         </details>
 
-        <h2 style="margin-top:22px;">Neues Spiel eintragen</h2>
+        <h2 style="margin-top:22px;">${tx("Neues Spiel eintragen")}</h2>
         <div class="row">
-          <div><label>Gegner</label><input type="text" id="nm-opponent" placeholder="z. B. FC Münzkirchen"></div>
-          <div><label>Heim/Auswärts</label>
+          <div><label>${tx("Gegner")}</label><input type="text" id="nm-opponent" placeholder="${tx("z. B. FC Münzkirchen")}"></div>
+          <div><label>${tx("Heim/Auswärts")}</label>
             <select id="nm-is-home">
-              <option value="1">Heimspiel</option>
-              <option value="0">Auswärtsspiel</option>
+              <option value="1">${tx("Heimspiel")}</option>
+              <option value="0">${tx("Auswärtsspiel")}</option>
             </select>
           </div>
         </div>
         <div class="row">
-          <div><label>Datum</label><input type="date" id="nm-date"></div>
-          <div><label>Uhrzeit</label><input type="time" id="nm-time"></div>
+          <div><label>${tx("Datum")}</label><input type="date" id="nm-date"></div>
+          <div><label>${tx("Uhrzeit")}</label><input type="time" id="nm-time"></div>
         </div>
-        <label>Gegner-Logo (Bild-URL, optional)</label>
-        <input type="text" id="nm-logo" placeholder="https://…">
+        <label>${tx("Gegner-Logo (Bild-URL, optional)")}</label>
+        <input type="text" id="nm-logo" placeholder="${tx("https://…")}">
         <div class="row">
-          <div><label>Runde (optional)</label><input type="text" id="nm-round" placeholder="z. B. Runde 14"></div>
-          <div><label>Schiedsrichter (optional)</label><input type="text" id="nm-referee" placeholder="wird meist erst kurzfristig bekannt"></div>
+          <div><label>${tx("Runde (optional)")}</label><input type="text" id="nm-round" placeholder="${tx("z. B. Runde 14")}"></div>
+          <div><label>${tx("Schiedsrichter (optional)")}</label><input type="text" id="nm-referee" placeholder="${tx("wird meist erst kurzfristig bekannt")}"></div>
         </div>
-        <label>Ort (optional)</label>
-        <input type="text" id="nm-ort" placeholder="z. B. Sportplatz Hauptplatz 1">
-        <label>Hinweis (optional)</label>
-        <input type="text" id="nm-note" placeholder="z. B. Meisterschaftsspiel">
+        <label>${tx("Ort (optional)")}</label>
+        <input type="text" id="nm-ort" placeholder="${tx("z. B. Sportplatz Hauptplatz 1")}">
+        <label>${tx("Hinweis (optional)")}</label>
+        <input type="text" id="nm-note" placeholder="${tx("z. B. Meisterschaftsspiel")}">
         <div id="nm-error" class="error"></div>
         <div class="row" style="margin-top:12px;">
-          <button id="btn-save-next-match" style="flex:0 0 auto;">Spiel hinzufügen</button>
+          <button id="btn-save-next-match" style="flex:0 0 auto;">${tx("Spiel hinzufügen")}</button>
         </div>
       </div>
       </div>
@@ -1800,21 +1808,21 @@
       <div class="admin-section" data-section="spieler" ${state.adminSection === "spieler" ? "" : "hidden"}>
       <div class="card">
         <div class="top-bar">
-          <h2 style="margin:0;">Spieler (${state.players.length})</h2>
-          <button class="small secondary" id="btn-toggle-players">${state.playersListOpen ? "Ausblenden" : "Anzeigen"}</button>
+          <h2 style="margin:0;">${tx("Spieler")} (${state.players.length})</h2>
+          <button class="small secondary" id="btn-toggle-players">${state.playersListOpen ? tx("Ausblenden") : tx("Anzeigen")}</button>
         </div>
         ${state.playersListOpen ? `
-          <p class="muted">Passwort vergessen? Spieler hier löschen — er/sie kann sich danach mit derselben oder einer neuen E-Mail neu registrieren.</p>
-          <input type="text" id="players-filter" placeholder="Spieler suchen …" value="${escapeHtml(state.playersFilter || "")}" style="margin-bottom:10px;">
+          <p class="muted">${tx("Passwort vergessen? Spieler hier löschen — er/sie kann sich danach mit derselben oder einer neuen E-Mail neu registrieren.")}</p>
+          <input type="text" id="players-filter" placeholder="${tx("Spieler suchen …")}" value="${escapeHtml(state.playersFilter || "")}" style="margin-bottom:10px;">
           <div class="players-scroll">
           ${state.players
             .filter((p) => !state.playersFilter || p.name.toLowerCase().includes(state.playersFilter.toLowerCase()))
             .map((p) => `
           <div class="list-item">
-            <span>${escapeHtml(p.name)} <span class="muted">${escapeHtml(p.email)}</span> ${p.isAdmin ? '<span class="badge-admin">Trainer</span>' : ""}</span>
+            <span>${escapeHtml(p.name)} <span class="muted">${escapeHtml(p.email)}</span> ${p.isAdmin ? tx('<span class="badge-admin">Trainer</span>') : ""}</span>
             <span class="row" style="max-width:320px;">
-              <button class="small secondary btn-toggle-admin" data-player-id="${p.id}">${p.isAdmin ? "Trainer entfernen" : "Zu Trainer machen"}</button>
-              ${p.id !== state.me.id ? `<button class="small secondary btn-delete-player" data-player-id="${p.id}" data-player-name="${escapeHtml(p.name)}">Löschen</button>` : ""}
+              <button class="small secondary btn-toggle-admin" data-player-id="${p.id}">${p.isAdmin ? tx("Trainer entfernen") : tx("Zu Trainer machen")}</button>
+              ${p.id !== state.me.id ? `<button class="small secondary btn-delete-player" data-player-id="${p.id}" data-player-name="${escapeHtml(p.name)}">${tx("Löschen")}</button>` : ""}
             </span>
           </div>`).join("")}
           </div>
@@ -1827,51 +1835,51 @@
       </div>
 
       <div class="admin-section" data-section="optionen" ${state.adminSection === "optionen" ? "" : "hidden"}>
-      ${optSection("sicht", "Sichtbarkeit", state.reasonsTrainerOnly ? "Gründe nur für Trainer" : "Gründe für alle", `
+      ${optSection("sicht", tx("Sichtbarkeit"), state.reasonsTrainerOnly ? tx("Gründe nur für Trainer") : tx("Gründe für alle"), `
         <div class="setting-row">
           <div>
-            <div class="setting-title">Gründe nur für Trainer sichtbar</div>
-            <div class="setting-hint">Spieler sehen bei „Vielleicht“ und „Absage“ nur ihren eigenen Grund. Namen und Zähler bleiben für alle sichtbar.</div>
+            <div class="setting-title">${tx("Gründe nur für Trainer sichtbar")}</div>
+            <div class="setting-hint">${tx("Spieler sehen bei „Vielleicht“ und „Absage“ nur ihren eigenen Grund. Namen und Zähler bleiben für alle sichtbar.")}</div>
           </div>
-          <input type="checkbox" class="toggle" id="toggle-reasons-trainer-only" aria-label="Gründe nur für Trainer sichtbar" ${state.reasonsTrainerOnly ? "checked" : ""}>
+          <input type="checkbox" class="toggle" id="toggle-reasons-trainer-only" aria-label="${tx("Gründe nur für Trainer sichtbar")}" ${state.reasonsTrainerOnly ? "checked" : ""}>
         </div>
         <div class="setting-row">
           <div>
-            <div class="setting-title">Spielvorschau anzeigen</div>
-            <div class="setting-hint">Zeigt im Trainingsplan oben das nächste Spiel.</div>
+            <div class="setting-title">${tx("Spielvorschau anzeigen")}</div>
+            <div class="setting-hint">${tx("Zeigt im Trainingsplan oben das nächste Spiel.")}</div>
           </div>
-          <input type="checkbox" class="toggle" id="toggle-match-banner" aria-label="Spielvorschau anzeigen" ${state.showMatchBanner ? "checked" : ""}>
+          <input type="checkbox" class="toggle" id="toggle-match-banner" aria-label="${tx("Spielvorschau anzeigen")}" ${state.showMatchBanner ? "checked" : ""}>
         </div>`)}
 
-      ${optSection("notif", "Benachrichtigungen", notifSummaryText(), renderNotifAdminCard())}
+      ${optSection("notif", tx("Benachrichtigungen"), notifSummaryText(), renderNotifAdminCard())}
 
-      ${optSection("wort", "Vereinswort", state.clubWord ? "festgelegt" : "nicht festgelegt", `
-        <p class="muted">Wer sich neu registrieren möchte, muss dieses Wort eingeben. Bereits registrierte Spieler sind nicht betroffen. Leer lassen = kein Vereinswort nötig.</p>
-        <label>Vereinswort</label>
-        <input type="text" id="club-word-input" maxlength="40" autocomplete="off" value="${escapeHtml(state.clubWord)}" placeholder="z. B. Forelle">
-        <div style="margin-top:10px;"><button class="small" id="btn-save-club-word">Speichern</button></div>
+      ${optSection("wort", tx("Vereinswort"), state.clubWord ? "festgelegt" : tx("nicht festgelegt"), `
+        <p class="muted">${tx("Wer sich neu registrieren möchte, muss dieses Wort eingeben. Bereits registrierte Spieler sind nicht betroffen. Leer lassen = kein Vereinswort nötig.")}</p>
+        <label>${tx("Vereinswort")}</label>
+        <input type="text" id="club-word-input" maxlength="40" autocomplete="off" value="${escapeHtml(state.clubWord)}" placeholder="${tx("z. B. Forelle")}">
+        <div style="margin-top:10px;"><button class="small" id="btn-save-club-word">${tx("Speichern")}</button></div>
         <div id="club-word-msg" class="info"></div>
       `)}
 
-      ${optSection("saison", "Saisonen", currentSeason ? currentSeason.name : "keine läuft gerade", `
-        <p class="muted">Trainings/Spiele werden automatisch anhand ihres Datums der passenden Saison zugerechnet. Die Statistik startet dadurch mit jeder neuen Saison von selbst wieder bei null.</p>
+      ${optSection("saison", tx("Saisonen"), currentSeason ? currentSeason.name : tx("keine läuft gerade"), `
+        <p class="muted">${tx("Trainings/Spiele werden automatisch anhand ihres Datums der passenden Saison zugerechnet. Die Statistik startet dadurch mit jeder neuen Saison von selbst wieder bei null.")}</p>
         ${currentSeason
-          ? `<p style="margin-bottom:2px;">Aktuell läuft:</p>${renderSeasonRow(currentSeason, false)}`
-          : `<p class="muted">Gerade ist keine Saison als "aktuell" hinterlegt (z. B. zwischen zwei Saisonen). Statistik zeigt in dem Fall automatisch alle Trainings.</p>`}
+          ? `<p style="margin-bottom:2px;">${tx("Aktuell läuft:")}</p>${renderSeasonRow(currentSeason, false)}`
+          : `<p class="muted">${tx("Gerade ist keine Saison als \"aktuell\" hinterlegt (z. B. zwischen zwei Saisonen). Statistik zeigt in dem Fall automatisch alle Trainings.")}</p>`}
         ${otherSeasons.length > 0 ? `
           <details style="margin:8px 0;" ${otherSeasons.some((x) => x.id === state.editingSeasonId) ? "open" : ""}>
-            <summary class="muted" style="cursor:pointer;">${otherSeasons.length} weitere Saison${otherSeasons.length === 1 ? "" : "en"} anzeigen</summary>
+            <summary class="muted" style="cursor:pointer;">${otherSeasons.length === 1 ? tx("1 weitere Saison anzeigen") : tx("{n} weitere Saisonen anzeigen", { n: otherSeasons.length })}</summary>
             ${otherSeasons.map((x) => renderSeasonRow(x, true)).join("")}
           </details>` : ""}
-        <p class="muted" style="font-size:12px;">Tipp: Findet ein Training außerhalb des Zeitraums statt (z. B. noch im Jänner), den Zeitraum der Saison über „Bearbeiten“ anpassen — sonst zählt es in keiner Saison-Statistik.</p>
-        <label style="margin-top:10px;">Neue Saison anlegen</label>
-        <input type="text" id="season-name" placeholder="z. B. Herbstsaison 2026" value="${escapeHtml(suggestSeasonName())}">
+        <p class="muted" style="font-size:12px;">${tx("Tipp: Findet ein Training außerhalb des Zeitraums statt (z. B. noch im Jänner), den Zeitraum der Saison über „Bearbeiten“ anpassen — sonst zählt es in keiner Saison-Statistik.")}</p>
+        <label style="margin-top:10px;">${tx("Neue Saison anlegen")}</label>
+        <input type="text" id="season-name" placeholder="${tx("z. B. Herbstsaison 2026")}" value="${escapeHtml(suggestSeasonName())}">
         <div class="row">
-          <div><label>Von</label><input type="date" id="season-start" value="${suggestSeasonRange().start}"></div>
-          <div><label>Bis</label><input type="date" id="season-end" value="${suggestSeasonRange().end}"></div>
+          <div><label>${tx("Von")}</label><input type="date" id="season-start" value="${suggestSeasonRange().start}"></div>
+          <div><label>${tx("Bis")}</label><input type="date" id="season-end" value="${suggestSeasonRange().end}"></div>
         </div>
         <div id="season-error" class="error"></div>
-        <div style="margin-top:10px;"><button class="small" id="btn-add-season">Saison anlegen</button></div>
+        <div style="margin-top:10px;"><button class="small" id="btn-add-season">${tx("Saison anlegen")}</button></div>
       `)}
       </div>
     `;
@@ -1932,7 +1940,7 @@
 
     document.querySelectorAll(".btn-delete-season").forEach((btn) => {
       btn.onclick = async () => {
-        if (!confirm("Diese Saison wirklich löschen? Die Trainings/Spiele selbst bleiben erhalten, zählen danach aber zu keiner Saison mehr.")) return;
+        if (!confirm(tx("Diese Saison wirklich löschen? Die Trainings/Spiele selbst bleiben erhalten, zählen danach aber zu keiner Saison mehr."))) return;
         try {
           await api(`/seasons/${btn.getAttribute("data-season-id")}`, { method: "DELETE" });
           await loadSeasons();
@@ -2005,7 +2013,7 @@
         try {
           await api("/settings", { method: "POST", body: { clubWord: word } });
           state.clubWord = word;
-          msg.textContent = word ? "Gespeichert. Neue Spieler brauchen jetzt dieses Wort." : "Vereinswort entfernt. Neue Spieler können sich ohne Wort registrieren.";
+          msg.textContent = word ? tx("Gespeichert. Neue Spieler brauchen jetzt dieses Wort.") : tx("Vereinswort entfernt. Neue Spieler können sich ohne Wort registrieren.");
         } catch (e) {
           msg.className = "error";
           msg.textContent = e.message;
@@ -2072,9 +2080,9 @@
         const feedback = document.getElementById("copy-format-feedback");
         try {
           await navigator.clipboard.writeText(BULK_MATCH_FORMAT_EXAMPLE);
-          feedback.textContent = "✓ In Zwischenablage kopiert!";
+          feedback.textContent = tx("✓ In Zwischenablage kopiert!");
         } catch (e) {
-          feedback.textContent = "Kopieren nicht möglich - Text im Feld bitte manuell markieren.";
+          feedback.textContent = tx("Kopieren nicht möglich - Text im Feld bitte manuell markieren.");
         }
         setTimeout(() => { feedback.textContent = ""; }, 3000);
       };
@@ -2093,28 +2101,28 @@
         try {
           data = JSON.parse(textarea.value.trim());
         } catch (e) {
-          err.textContent = "Das ist kein gültiges JSON. Bitte das Format genau prüfen (z. B. mit einem Online-JSON-Validator).";
+          err.textContent = tx("Das ist kein gültiges JSON. Bitte das Format genau prüfen (z. B. mit einem Online-JSON-Validator).");
           err.style.display = "block";
           return;
         }
         if (!Array.isArray(data)) {
-          err.textContent = 'Das JSON muss eine Liste sein, also in eckigen Klammern: [ {...}, {...} ]';
+          err.textContent = tx('Das JSON muss eine Liste sein, also in eckigen Klammern: [ {...}, {...} ]');
           err.style.display = "block";
           return;
         }
         if (data.length === 0) {
-          err.textContent = "Die Liste ist leer.";
+          err.textContent = tx("Die Liste ist leer.");
           err.style.display = "block";
           return;
         }
         if (data.length > 100) {
-          err.textContent = `Zu viele Einträge (${data.length}) auf einmal - bitte in Blöcken von max. 100 importieren.`;
+          err.textContent = tx("Zu viele Einträge ({n}) auf einmal - bitte in Blöcken von max. 100 importieren.", { n: data.length });
           err.style.display = "block";
           return;
         }
 
         bulkImportBtn.disabled = true;
-        status.textContent = `Importiere ${data.length} Spiele …`;
+        status.textContent = tx("Importiere {n} Spiele …", { n: data.length });
 
         let created = 0, skipped = 0, invalid = 0;
         for (const item of data) {
@@ -2147,7 +2155,7 @@
             await api("/log/batch", { method: "POST", body: { kind: "match-import", count: created, skipped, invalid } });
           } catch (e) { /* Protokoll ist nur Zusatz */ }
         }
-        status.textContent = `Fertig: ${created} Spiele hinzugefügt${skipped > 0 ? `, ${skipped} bereits vorhanden übersprungen` : ""}${invalid > 0 ? `, ${invalid} Einträge waren unvollständig/ungültig` : ""}.`;
+        status.textContent = tx("Fertig: {created} Spiele hinzugefügt", { created }) + (skipped > 0 ? tx(", {n} bereits vorhanden übersprungen", { n: skipped }) : "") + (invalid > 0 ? tx(", {n} Einträge waren unvollständig/ungültig", { n: invalid }) : "") + ".";
         bulkImportBtn.disabled = false;
         await loadMatches();
         render();
@@ -2157,7 +2165,7 @@
     document.querySelectorAll(".btn-delete-match").forEach((btn) => {
       btn.onclick = async () => {
         const matchId = btn.getAttribute("data-match-id");
-        if (!confirm("Dieses Spiel wirklich löschen?")) return;
+        if (!confirm(tx("Dieses Spiel wirklich löschen?"))) return;
         try {
           await api(`/matches/${matchId}`, { method: "DELETE" });
           await loadMatches();
@@ -2198,7 +2206,7 @@
         const err = card.querySelector(".em-error");
         err.style.display = "none";
         if (!opponent || !date || !time) {
-          err.textContent = "Bitte Gegner, Datum und Uhrzeit angeben.";
+          err.textContent = tx("Bitte Gegner, Datum und Uhrzeit angeben.");
           err.style.display = "block";
           return;
         }
@@ -2257,22 +2265,22 @@
       err.textContent = "";
       status.textContent = "";
 
-      if (selectedDays.length === 0) { err.textContent = "Bitte mindestens einen Wochentag auswählen."; return; }
-      if (!time || !ort || !startVal || !endVal) { err.textContent = "Bitte Uhrzeit, Ort sowie Start- und Enddatum angeben."; return; }
+      if (selectedDays.length === 0) { err.textContent = tx("Bitte mindestens einen Wochentag auswählen."); return; }
+      if (!time || !ort || !startVal || !endVal) { err.textContent = tx("Bitte Uhrzeit, Ort sowie Start- und Enddatum angeben."); return; }
       const start = new Date(`${startVal}T00:00:00`);
       const end = new Date(`${endVal}T00:00:00`);
-      if (end < start) { err.textContent = "Das Enddatum darf nicht vor dem Startdatum liegen."; return; }
+      if (end < start) { err.textContent = tx("Das Enddatum darf nicht vor dem Startdatum liegen."); return; }
 
       const dates = [];
       for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
         if (selectedDays.includes(d.getDay())) dates.push(toISODate(d));
       }
-      if (dates.length === 0) { err.textContent = "Im gewählten Zeitraum liegt kein passender Wochentag."; return; }
-      if (dates.length > 150) { err.textContent = `Das wären ${dates.length} Termine — bitte den Zeitraum eingrenzen (max. 150 auf einmal).`; return; }
+      if (dates.length === 0) { err.textContent = tx("Im gewählten Zeitraum liegt kein passender Wochentag."); return; }
+      if (dates.length > 150) { err.textContent = tx("Das wären {n} Termine — bitte den Zeitraum eingrenzen (max. 150 auf einmal).", { n: dates.length }); return; }
 
       const btn = document.getElementById("btn-create-series");
       btn.disabled = true;
-      status.textContent = `Lege ${dates.length} Termine an …`;
+      status.textContent = tx("Lege {n} Termine an …", { n: dates.length });
 
       let created = 0, skipped = 0;
       for (const date of dates) {
@@ -2288,7 +2296,7 @@
           await api("/log/batch", { method: "POST", body: { kind: "series", count: created, skipped, from: dates[0], to: dates[dates.length - 1], time, ort } });
         } catch (e) { /* Protokoll ist nur Zusatz - ein Fehler hier stoert nicht */ }
       }
-      status.textContent = `Fertig: ${created} Trainings angelegt${skipped > 0 ? `, ${skipped} bereits vorhanden übersprungen` : ""}.`;
+      status.textContent = tx("Fertig: {created} Trainings angelegt", { created }) + (skipped > 0 ? tx(", {n} bereits vorhanden übersprungen", { n: skipped }) : "") + ".";
       btn.disabled = false;
       state.weekStart = startOfWeek(start);
       await loadTrainings();
@@ -2316,7 +2324,7 @@
       btn.onclick = async () => {
         const card = btn.closest("[data-admin-id]");
         const id = card.getAttribute("data-admin-id");
-        if (!confirm("Dieses Training wirklich löschen?")) return;
+        if (!confirm(tx("Dieses Training wirklich löschen?"))) return;
         try {
           await api(`/trainings/${id}`, { method: "DELETE" });
           await loadTrainings();
@@ -2353,7 +2361,7 @@
         const err = card.querySelector(".edit-error");
         err.style.display = "none";
         if (!date || !time || !ort) {
-          err.textContent = "Bitte Datum, Uhrzeit und Ort angeben.";
+          err.textContent = tx("Bitte Datum, Uhrzeit und Ort angeben.");
           err.style.display = "block";
           return;
         }
@@ -2379,7 +2387,7 @@
         const name = input.value.trim();
         err.style.display = "none";
         if (!name) {
-          err.textContent = "Bitte einen Namen angeben.";
+          err.textContent = tx("Bitte einen Namen angeben.");
           err.style.display = "block";
           return;
         }
@@ -2424,7 +2432,7 @@
         statusEl.textContent = "";
         const playerId = select.value;
         if (!playerId) {
-          errBox.textContent = "Bitte zuerst einen Spieler auswählen.";
+          errBox.textContent = tx("Bitte zuerst einen Spieler auswählen.");
           errBox.style.display = "block";
           return;
         }
@@ -2432,7 +2440,7 @@
         if (status === "zusage") {
           try {
             const result = await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: "zusage", reason: "" } });
-            state.adminRsvpFeedback[id] = `Gespeichert: ${select.options[select.selectedIndex].text} → Zusage.`;
+            state.adminRsvpFeedback[id] = tx("Gespeichert: {player} → Zusage.", { player: select.options[select.selectedIndex].text });
             applyAdminRsvpResult(id, playerId, "zusage", "", result);
             render();
           } catch (e) {
@@ -2468,7 +2476,7 @@
         try {
           const playerLabel = select.options[select.selectedIndex].text;
           const result = await api(`/trainings/${id}/rsvp-for/${playerId}`, { method: "POST", body: { status: pending, reason: text } });
-          state.adminRsvpFeedback[id] = `Gespeichert: ${playerLabel} → ${statusLabel(pending)}.`;
+          state.adminRsvpFeedback[id] = tx("Gespeichert: {player} → {status}.", { player: playerLabel, status: statusLabel(pending) });
           applyAdminRsvpResult(id, playerId, pending, text, result);
           render();
         } catch (e) {
@@ -2495,7 +2503,7 @@
       btn.onclick = async () => {
         const playerId = btn.getAttribute("data-player-id");
         const name = btn.getAttribute("data-player-name");
-        if (!confirm(`${name} wirklich löschen? Alle bisherigen Zu-/Absagen dieser Person gehen dabei verloren.`)) return;
+        if (!confirm(tx("{name} wirklich löschen? Alle bisherigen Zu-/Absagen dieser Person gehen dabei verloren.", { name }))) return;
         try {
           await api(`/players/${playerId}`, { method: "DELETE" });
           await loadPlayers();
@@ -2515,13 +2523,35 @@
     const openBtn = document.getElementById("btn-info");
     const closeBtn = document.getElementById("btn-info-close");
     const desc = document.getElementById("info-club-description");
-    if (desc) desc.textContent = `Trainingsanmeldung (Zusage/Vielleicht/Absage), Spielplan und Teilnahme-Statistik für den ${CLUB_NAME}.`;
+    if (desc) desc.textContent = tx("Trainingsanmeldung (Zusage/Vielleicht/Absage), Spielplan und Teilnahme-Statistik für den {club}.", { club: CLUB_NAME });
     if (!overlay || !openBtn || !closeBtn) return;
     openBtn.onclick = () => { overlay.style.display = "flex"; };
     closeBtn.onclick = () => { overlay.style.display = "none"; };
     overlay.onclick = (ev) => { if (ev.target === overlay) overlay.style.display = "none"; };
   }
   bindInfoOverlay();
+
+  // Sprachauswahl (Weltsymbol im Kopf neben dem "i")
+  function bindLang() {
+    const btn = document.getElementById("btn-lang");
+    const menu = document.getElementById("lang-menu");
+    if (!btn || !menu) return;
+    menu.querySelectorAll("[data-lang]").forEach((b) => {
+      b.classList.toggle("active", b.getAttribute("data-lang") === I18N.lang);
+      b.onclick = async () => {
+        const l = b.getAttribute("data-lang");
+        menu.hidden = true;
+        if (l === I18N.lang) return;
+        I18N.setLang(l);
+        if (state.me) { try { await api("/lang", { method: "POST", body: { lang: l } }); } catch (e) { /* nicht schlimm */ } }
+        location.reload(); // Seite neu laden: alle Texte, Datumsformate und Vorschauen kommen dann in der neuen Sprache
+      };
+    });
+    btn.onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; };
+    document.addEventListener("click", (e) => { if (!menu.contains(e.target)) menu.hidden = true; });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") menu.hidden = true; });
+  }
+  bindLang();
 
   // ---------- Start ----------
 
